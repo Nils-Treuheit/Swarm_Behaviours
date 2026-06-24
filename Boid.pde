@@ -26,10 +26,6 @@ class Boid {
   // Health
   float health;
 
-  // ACO state
-  boolean acoPhase; // true=exploit (follow pheromones), false=explore (avoid/wander)
-  int acoPhaseTimer;
-
   // Flight trail
   ArrayList<PVector> trail = new ArrayList<PVector>();
   final int MAX_TRAIL = 15;
@@ -73,8 +69,6 @@ class Boid {
     socialWeight = random(0, 1);
     health = random(1, 11);
     dead = false;
-    acoPhase = random(1) > 0.5;
-    acoPhaseTimer = int(random(60, 120));
   }
 
   Boid(float x, float y, int directions) {

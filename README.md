@@ -95,7 +95,7 @@ Each boid adopts the average heading of neighbours within a fixed radius, plus a
 Inspired by gene regulatory networks. Each boid carries a morphogen concentration that evolves via neighbour diffusion, production toward a random target level, and decay. High morphogen → strong goal-seeking; low morphogen → exploratory wandering with heightened danger sensitivity.
 
 ### ACO (9)
-A pheromone grid (50px cells) overlays the world. Boids deposit pheromone near attractors and follow pheromone gradients for steering. Pheromone evaporates and diffuses each frame. Yellow dots show the current trail density.
+A pheromone grid (50px cells) overlays the world. The centre emits a constant semi-local pheromone beacon (home). Non-carrying boids explore with random wander and weak attraction to targets; they also follow pheromone gradients to converge on trails left by returning boids. Carrying boids follow the pheromone gradient uphill toward the centre emitter and deposit heavy pheromone on their return path, creating visible ant-like trail networks. Pheromone evaporates and diffuses each frame. Yellow dots (size/alpha mapped to intensity) show trail density.
 
 ### SPP (0)
 Social Positioning Protocol. Each boid gets a random social weight in [0,1]. Boids with similar weights attract (form same-weight clusters); boids with different weights repel.

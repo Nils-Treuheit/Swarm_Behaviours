@@ -462,6 +462,19 @@ class SwarmManager {
     if (behaviourFlag == BehaviourFlag.ACO) {
       evaporatePheromone();
       diffusePheromone();
+      // Semi-local constant pheromone emission from center (home beacon)
+      int cx = int(CENTER_X / PHEROMONE_CELL);
+      int cy = int(CENTER_Y / PHEROMONE_CELL);
+      for (int dx = -4; dx <= 4; dx++) {
+        for (int dy = -4; dy <= 4; dy++) {
+          float dist = sqrt(dx * dx + dy * dy);
+          if (dist > 4) continue;
+          int nx = constrain(cx + dx, 0, PHEROMONE_COLS - 1);
+          int ny = constrain(cy + dy, 0, PHEROMONE_ROWS - 1);
+          float strength = (4 - dist) / 4 * 10;
+          pheromone[nx][ny] = min(pheromone[nx][ny] + strength, 100);
+        }
+      }
     }
   }
 
@@ -840,13 +853,6 @@ class SwarmManager {
   }
 
   void applyAco(Boid b) {
-    // Update ACO phase
-    b.acoPhaseTimer--;
-    if (b.acoPhaseTimer <= 0) {
-      b.acoPhase = !b.acoPhase;
-      b.acoPhaseTimer = int(random(80, 160));
-    }
-
     // Sense pheromone at current position
     int px = int(b.pos.x / PHEROMONE_CELL);
     int py = int(b.pos.y / PHEROMONE_CELL);
@@ -866,7 +872,7 @@ class SwarmManager {
     }
     pheromone[px][py] = min(pheromone[px][py] + deposit, 100);
 
-    // Read pheromone gradient (full, not just positive)
+    // Read pheromone gradient
     PVector gradient = new PVector();
     for (int dx = -1; dx <= 1; dx++) {
       for (int dy = -1; dy <= 1; dy++) {
@@ -879,37 +885,25 @@ class SwarmManager {
     }
 
     if (b.carrying) {
-      // Returning to centre: always follow gradient toward stronger pheromone
-      // (the outward trail from other drones creates a path to centre)
+      // Returning to center: follow pheromone uphill toward center emitter
       if (gradient.mag() > 0.1) {
-        gradient.setMag(PHEROMONE_INFLUENCE * 1.5);
+        gradient.setMag(PHEROMONE_INFLUENCE * 2);
         b.acc.add(gradient);
       }
-      // slight wander to keep trail braided
+      // slight wander for natural-looking trails
       b.acc.add(PVector.random2D().mult(0.15));
     } else {
-      // Searching
-      if (b.acoPhase) {
-        // EXPLOIT: follow pheromone gradient toward higher concentration
-        if (gradient.mag() > 0.1) {
-          gradient.setMag(PHEROMONE_INFLUENCE * 2);
-          b.acc.add(gradient);
-        }
-        // gentle wander even while exploiting
-        b.acc.add(PVector.random2D().mult(0.2));
-      } else {
-        // EXPLORE: avoid pheromones (anti-gradient) + random wander
-        PVector anti = PVector.mult(gradient, -1);
-        if (anti.mag() > 0.1) {
-          anti.setMag(PHEROMONE_INFLUENCE * 1.2);
-          b.acc.add(anti);
-        }
-        // stronger wander during exploration
-        b.acc.add(PVector.random2D().mult(0.5));
+      // Searching: weak attraction to targets + explore via wander
+      for (PVector a : attractors)
+        b.linear_attraction(a, int(ATT_MULT * 0.25));
+      // Follow pheromone to converge on food trails left by returning drones
+      if (gradient.mag() > 0.1) {
+        gradient.setMag(PHEROMONE_INFLUENCE * 1.2);
+        b.acc.add(gradient);
       }
+      // Random exploration wander
+      b.acc.add(PVector.random2D().mult(0.4));
     }
-
-    // No direct target attraction — boids find targets via pheromone trails
 
     // Repulsion from repellents
     for (PVector r : repellents)

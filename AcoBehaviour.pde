@@ -13,7 +13,7 @@
 //
 // Carrying boids (returning to centre):
 //   - Follow pheromone gradient uphill toward the centre emitter
-//   - Deposit heavy pheromone (4×) on the return path
+//   - Deposit heavy pheromone (4x) on the return path
 //   - Slight wander for natural braided trails
 //
 // Pheromone evaporates and diffuses each frame. Yellow dots
@@ -23,65 +23,65 @@
 // ---------------------------------------------------------------
 // initPheromone: allocate the 2D pheromone grid
 // ---------------------------------------------------------------
-void initPheromone() {
-  PHEROMONE_COLS = width / PHEROMONE_CELL + 1;
-  PHEROMONE_ROWS = height / PHEROMONE_CELL + 1;
-  pheromone = new float[PHEROMONE_COLS][PHEROMONE_ROWS];
+void initPheromone(SwarmManager sm) {
+  sm.PHEROMONE_COLS = width / sm.PHEROMONE_CELL + 1;
+  sm.PHEROMONE_ROWS = height / sm.PHEROMONE_CELL + 1;
+  sm.pheromone = new float[sm.PHEROMONE_COLS][sm.PHEROMONE_ROWS];
 }
 
 // ---------------------------------------------------------------
 // evaporatePheromone: decay all cells uniformly
 // ---------------------------------------------------------------
-void evaporatePheromone() {
-  for (int x = 0; x < PHEROMONE_COLS; x++)
-    for (int y = 0; y < PHEROMONE_ROWS; y++)
-      pheromone[x][y] *= (1 - PHEROMONE_EVAPORATION);
+void evaporatePheromone(SwarmManager sm) {
+  for (int x = 0; x < sm.PHEROMONE_COLS; x++)
+    for (int y = 0; y < sm.PHEROMONE_ROWS; y++)
+      sm.pheromone[x][y] *= (1 - sm.PHEROMONE_EVAPORATION);
 }
 
 // ---------------------------------------------------------------
 // diffusePheromone: standard 4-neighbour diffusion
 // ---------------------------------------------------------------
-void diffusePheromone() {
-  float[][] temp = new float[PHEROMONE_COLS][PHEROMONE_ROWS];
-  for (int x = 1; x < PHEROMONE_COLS - 1; x++)
-    for (int y = 1; y < PHEROMONE_ROWS - 1; y++) {
-      temp[x][y] = pheromone[x][y] * (1 - 4 * PHEROMONE_DIFFUSION)
-          + (pheromone[x - 1][y] + pheromone[x + 1][y] + pheromone[x][y - 1] + pheromone[x][y + 1]) * PHEROMONE_DIFFUSION;
+void diffusePheromone(SwarmManager sm) {
+  float[][] temp = new float[sm.PHEROMONE_COLS][sm.PHEROMONE_ROWS];
+  for (int x = 1; x < sm.PHEROMONE_COLS - 1; x++)
+    for (int y = 1; y < sm.PHEROMONE_ROWS - 1; y++) {
+      temp[x][y] = sm.pheromone[x][y] * (1 - 4 * sm.PHEROMONE_DIFFUSION)
+          + (sm.pheromone[x - 1][y] + sm.pheromone[x + 1][y] + sm.pheromone[x][y - 1] + sm.pheromone[x][y + 1]) * sm.PHEROMONE_DIFFUSION;
     }
-  pheromone = temp;
+  sm.pheromone = temp;
 }
 
 // ---------------------------------------------------------------
 // applyAco: per-boid ACO logic
 // ---------------------------------------------------------------
-void applyAco(Boid b) {
+void applyAco(SwarmManager sm, Boid b) {
   // Map boid position to pheromone grid cell
-  int px = int(b.pos.x / PHEROMONE_CELL);
-  int py = int(b.pos.y / PHEROMONE_CELL);
-  px = constrain(px, 0, PHEROMONE_COLS - 1);
-  py = constrain(py, 0, PHEROMONE_ROWS - 1);
+  int px = int(b.pos.x / sm.PHEROMONE_CELL);
+  int py = int(b.pos.y / sm.PHEROMONE_CELL);
+  px = constrain(px, 0, sm.PHEROMONE_COLS - 1);
+  py = constrain(py, 0, sm.PHEROMONE_ROWS - 1);
 
   // Deposit pheromone at current cell
-  float deposit = PHEROMONE_DEPOSIT;
+  float deposit = sm.PHEROMONE_DEPOSIT;
   if (b.carrying) {
     deposit *= 4; // heavy trail back to centre
   } else {
     // Bonus deposit near attractors to mark "food sources"
-    for (PVector a : attractors) {
+    for (PVector a : sm.attractors) {
       float d = PVector.dist(b.pos, a);
       if (d < 200) deposit *= (200 - d) / 200 * 3;
     }
   }
-  pheromone[px][py] = min(pheromone[px][py] + deposit, 100);
+  sm.pheromone[px][py] = min(sm.pheromone[px][py] + deposit, 100);
 
   // Read pheromone gradient (difference to each of the 8 neighbours)
   PVector gradient = new PVector();
   for (int dx = -1; dx <= 1; dx++) {
     for (int dy = -1; dy <= 1; dy++) {
       if (dx == 0 && dy == 0) continue;
-      int nx = constrain(px + dx, 0, PHEROMONE_COLS - 1);
-      int ny = constrain(py + dy, 0, PHEROMONE_ROWS - 1);
-      float diff = pheromone[nx][ny] - pheromone[px][py];
+      int nx = constrain(px + dx, 0, sm.PHEROMONE_COLS - 1);
+      int ny = constrain(py + dy, 0, sm.PHEROMONE_ROWS - 1);
+      float diff = sm.pheromone[nx][ny] - sm.pheromone[px][py];
       gradient.add(new PVector(dx, dy).mult(diff));
     }
   }
@@ -89,37 +89,34 @@ void applyAco(Boid b) {
   if (b.carrying) {
     // Returning to centre: follow gradient uphill toward centre emitter
     if (gradient.mag() > 0.1) {
-      gradient.setMag(PHEROMONE_INFLUENCE * 2);
+      gradient.setMag(sm.PHEROMONE_INFLUENCE * 2);
       b.acc.add(gradient);
     }
-    b.acc.add(PVector.random2D().mult(0.15)); // slight wander for natural trails
+    b.acc.add(PVector.random2D().mult(0.15));
   } else {
     // Searching: weak attraction to targets + explore via wander
-    for (PVector a : attractors)
-      b.linear_attraction(a, int(ATT_MULT * 0.25));
-    // Follow pheromone to converge on food trails left by returning boids
+    for (PVector a : sm.attractors)
+      b.linear_attraction(a, int(sm.ATT_MULT * 0.25));
     if (gradient.mag() > 0.1) {
-      gradient.setMag(PHEROMONE_INFLUENCE * 1.2);
+      gradient.setMag(sm.PHEROMONE_INFLUENCE * 1.2);
       b.acc.add(gradient);
     }
-    b.acc.add(PVector.random2D().mult(0.4)); // random exploration
+    b.acc.add(PVector.random2D().mult(0.4));
   }
 
-  // No direct strong target attraction — boids find targets via pheromone trails
-
   // Repulsion from danger dots
-  for (PVector r : repellents)
-    b.simpleExponential_repulsion(r, PERLIMITER, REP_MULT);
+  for (PVector r : sm.repellents)
+    b.simpleExponential_repulsion(r, sm.PERLIMITER, sm.REP_MULT);
 
   // Border repulsion
-  for (PVector bp : border_points)
-    b.simpleExponential_repulsion(bp, BORDER_PERLIMITER, REP_MULT);
+  for (PVector bp : sm.border_points)
+    b.simpleExponential_repulsion(bp, sm.BORDER_PERLIMITER, sm.REP_MULT);
 
   // Inter-boid cohesion + repulsion
-  for (Boid other : boids) {
+  for (Boid other : sm.boids) {
     if (other != b) {
-      b.comfy_attraction(other.pos, COMFY_DIST * 1.5, DRONE_ATT_MULT);
-      b.complexExponential_repulsion(other.pos, DRONE_PERLIMITER, DRONE_ATT_MULT, DRONE_REP_MULT * 2);
+      b.comfy_attraction(other.pos, sm.COMFY_DIST * 1.5, sm.DRONE_ATT_MULT);
+      b.complexExponential_repulsion(other.pos, sm.DRONE_PERLIMITER, sm.DRONE_ATT_MULT, sm.DRONE_REP_MULT * 2);
     }
   }
 

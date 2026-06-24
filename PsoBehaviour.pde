@@ -9,11 +9,11 @@
 // and obstacle avoidance.
 // ============================================================
 
-void applyPSO(Boid b) {
+void applyPSO(SwarmManager sm, Boid b) {
   // Update personal best: min distance to nearest attractor
-  if (!attractors.isEmpty()) {
+  if (!sm.attractors.isEmpty()) {
     float minDist = Float.MAX_VALUE;
-    for (PVector a : attractors) {
+    for (PVector a : sm.attractors) {
       float d = PVector.dist(b.pos, a);
       if (d < minDist) minDist = d;
     }
@@ -26,32 +26,32 @@ void applyPSO(Boid b) {
   // PSO velocity update
   float r1 = random(1);
   float r2 = random(1);
-  PVector cognitive = PVector.sub(b.pbest, b.pos).mult(PSO_COGNITIVE * r1);
-  PVector social    = PVector.sub(gbest, b.pos).mult(PSO_SOCIAL * r2);
-  PVector inertia   = b.vel.copy().mult(PSO_INERTIA);
+  PVector cognitive = PVector.sub(b.pbest, b.pos).mult(sm.PSO_COGNITIVE * r1);
+  PVector social    = PVector.sub(sm.gbest, b.pos).mult(sm.PSO_SOCIAL * r2);
+  PVector inertia   = b.vel.copy().mult(sm.PSO_INERTIA);
 
   PVector psoForce = PVector.add(inertia, cognitive);
   psoForce.add(social);
 
   // Attraction to attractors (skip if carrying)
   if (!b.carrying) {
-    for (PVector a : attractors)
-      b.linear_attraction(a, ATT_MULT);
+    for (PVector a : sm.attractors)
+      b.linear_attraction(a, sm.ATT_MULT);
   }
 
   // Repulsion from danger dots
-  for (PVector r : repellents)
-    b.simpleExponential_repulsion(r, PERLIMITER, REP_MULT);
+  for (PVector r : sm.repellents)
+    b.simpleExponential_repulsion(r, sm.PERLIMITER, sm.REP_MULT);
 
   // Border repulsion
-  for (PVector bp : border_points)
-    b.simpleExponential_repulsion(bp, BORDER_PERLIMITER, REP_MULT);
+  for (PVector bp : sm.border_points)
+    b.simpleExponential_repulsion(bp, sm.BORDER_PERLIMITER, sm.REP_MULT);
 
   // Inter-boid repulsion
-  for (Boid other : boids) {
+  for (Boid other : sm.boids) {
     if (other != b) {
-      b.comfy_attraction(other.pos, COMFY_DIST * 1.5, DRONE_ATT_MULT);
-      b.complexExponential_repulsion(other.pos, DRONE_PERLIMITER, DRONE_ATT_MULT, DRONE_REP_MULT * 2);
+      b.comfy_attraction(other.pos, sm.COMFY_DIST * 1.5, sm.DRONE_ATT_MULT);
+      b.complexExponential_repulsion(other.pos, sm.DRONE_PERLIMITER, sm.DRONE_ATT_MULT, sm.DRONE_REP_MULT * 2);
     }
   }
 

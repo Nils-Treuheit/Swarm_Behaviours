@@ -18,8 +18,8 @@
 // ---------------------------------------------------------------
 // applyConSteer: standard context steering (mode 3)
 // ---------------------------------------------------------------
-void applyConSteer(Boid b) {
-  for (int idx = 0; idx < RAY_DIRS.size(); ++idx) {
+void applyConSteer(SwarmManager sm, Boid b) {
+  for (int idx = 0; idx < sm.RAY_DIRS.size(); ++idx) {
     ArrayList<PVector> intrest_forces   = new ArrayList<PVector>();
     ArrayList<PVector> member_atts      = new ArrayList<PVector>();
     ArrayList<PVector> member_reps      = new ArrayList<PVector>();
@@ -29,47 +29,47 @@ void applyConSteer(Boid b) {
 
     // Interest: goals in this sector (skip if carrying)
     if (!b.carrying) {
-      for (PVector goal : goalsCS)
-        if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(goal, b.pos)) >= SECTOR_COS_SIM)
-          intrest_forces.add(b.linear_Attraction_CS(goal, GOAL_LIMIT, GOAL_SIGMA, GOAL_GAMMA));
+      for (PVector goal : sm.goalsCS)
+        if (cosine_sim(sm.RAY_DIRS.get(idx), PVector.sub(goal, b.pos)) >= sm.SECTOR_COS_SIM)
+          intrest_forces.add(b.linear_Attraction_CS(goal, sm.GOAL_LIMIT, sm.GOAL_SIGMA, sm.GOAL_GAMMA));
     }
 
     // Flocking: member attraction, repulsion, alignment
-    for (Boid other : boids) {
+    for (Boid other : sm.boids) {
       if (other != b) {
-        if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(other.pos, b.pos)) >= SECTOR_COS_SIM) {
-          float member_dist = PVector.sub(other.pos, b.pos).mult(PIXEL_METRIC_CONV).mag();
-          if (member_dist <= MEMBER_TO_CLOSE) masked = true;
-          else if (member_dist <= SWARM_DIST) alignment_forces.add(other.vel);
-          member_atts.add(b.log_Attraction(other.pos, MEMBER_ATT_LIMIT, MEMBER_ATT_CUT_OFF));
+        if (cosine_sim(sm.RAY_DIRS.get(idx), PVector.sub(other.pos, b.pos)) >= sm.SECTOR_COS_SIM) {
+          float member_dist = PVector.sub(other.pos, b.pos).mult(sm.PIXEL_METRIC_CONV).mag();
+          if (member_dist <= sm.MEMBER_TO_CLOSE) masked = true;
+          else if (member_dist <= sm.SWARM_DIST) alignment_forces.add(other.vel);
+          member_atts.add(b.log_Attraction(other.pos, sm.MEMBER_ATT_LIMIT, sm.MEMBER_ATT_CUT_OFF));
         }
-        if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(other.pos, b.pos).rotate(PI)) >= SECTOR_COS_SIM) {
-          member_reps.add(b.linear_Repulsion(other.pos, MEMBER_REP_LIMIT, MEMBER_REP_SIGMA, MEMBER_REP_GAMMA, MEMBER_REP_ALPHA));
+        if (cosine_sim(sm.RAY_DIRS.get(idx), PVector.sub(other.pos, b.pos).rotate(PI)) >= sm.SECTOR_COS_SIM) {
+          member_reps.add(b.linear_Repulsion(other.pos, sm.MEMBER_REP_LIMIT, sm.MEMBER_REP_SIGMA, sm.MEMBER_REP_GAMMA, sm.MEMBER_REP_ALPHA));
         }
       }
     }
 
     // Danger: objects behind the boid in this sector
-    for (PVector danger : dangersCS) {
-      if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(danger, b.pos).rotate(PI)) >= SECTOR_COS_SIM)
-        danger_forces.add(b.limExp_Repulsion(danger, DANGER_LIMIT, DANGER_CUT_OFF, DANGER_SIGMA, DANGER_GAMMA, DANGER_ALPHA));
-      else if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(danger, b.pos)) >= SECTOR_COS_SIM) {
-        float member_dist = PVector.sub(danger, b.pos).mult(PIXEL_METRIC_CONV).mag();
-        if (member_dist <= DANGER_TO_CLOSE) masked = true;
+    for (PVector danger : sm.dangersCS) {
+      if (cosine_sim(sm.RAY_DIRS.get(idx), PVector.sub(danger, b.pos).rotate(PI)) >= sm.SECTOR_COS_SIM)
+        danger_forces.add(b.limExp_Repulsion(danger, sm.DANGER_LIMIT, sm.DANGER_CUT_OFF, sm.DANGER_SIGMA, sm.DANGER_GAMMA, sm.DANGER_ALPHA));
+      else if (cosine_sim(sm.RAY_DIRS.get(idx), PVector.sub(danger, b.pos)) >= sm.SECTOR_COS_SIM) {
+        float member_dist = PVector.sub(danger, b.pos).mult(sm.PIXEL_METRIC_CONV).mag();
+        if (member_dist <= sm.DANGER_TO_CLOSE) masked = true;
       }
     }
 
     // Border proximity masks this sector
-    for (PVector bp : border_points)
-      if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(bp, b.pos)) >= SECTOR_COS_SIM) {
-        float member_dist = PVector.sub(bp, b.pos).mult(PIXEL_METRIC_CONV).mag();
-        if (member_dist <= BORDER_TO_CLOSE) masked = true;
+    for (PVector bp : sm.border_points)
+      if (cosine_sim(sm.RAY_DIRS.get(idx), PVector.sub(bp, b.pos)) >= sm.SECTOR_COS_SIM) {
+        float member_dist = PVector.sub(bp, b.pos).mult(sm.PIXEL_METRIC_CONV).mag();
+        if (member_dist <= sm.BORDER_TO_CLOSE) masked = true;
       }
 
     b.create_context_segment(idx, intrest_forces, danger_forces, member_atts, member_reps, alignment_forces, !masked);
   }
 
-  b.context_steering(RAY_DIRS, SECTOR_COS_SIM);
+  b.context_steering(sm.RAY_DIRS, sm.SECTOR_COS_SIM);
 
   b.vel.add(b.acc);
   b.vel.limit(b.maxSpeed);
@@ -79,16 +79,11 @@ void applyConSteer(Boid b) {
 
 // ---------------------------------------------------------------
 // applyCombined: leader-follower context steering (mode 4)
-//
-// The leader (closest boid to nearest attractor) navigates toward
-// green targets. Followers steer toward the leader. All boids
-// maintain flock cohesion with stronger inter-boid forces and
-// avoid repulsion zones (R items) using the same sector system.
 // ---------------------------------------------------------------
-void applyCombined(Boid b, Boid leader) {
+void applyCombined(SwarmManager sm, Boid b, Boid leader) {
   boolean isLeader = (leader == b);
 
-  for (int idx = 0; idx < RAY_DIRS.size(); ++idx) {
+  for (int idx = 0; idx < sm.RAY_DIRS.size(); ++idx) {
     ArrayList<PVector> intrest_forces   = new ArrayList<PVector>();
     ArrayList<PVector> member_atts      = new ArrayList<PVector>();
     ArrayList<PVector> member_reps      = new ArrayList<PVector>();
@@ -98,38 +93,38 @@ void applyCombined(Boid b, Boid leader) {
 
     // Leader navigates toward attractors; followers steer toward leader
     if (isLeader && !b.carrying) {
-      for (PVector a : attractors)
-        if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(a, b.pos)) >= SECTOR_COS_SIM)
-          intrest_forces.add(b.linear_Attraction_CS(a, GOAL_LIMIT, GOAL_SIGMA, GOAL_GAMMA));
+      for (PVector a : sm.attractors)
+        if (cosine_sim(sm.RAY_DIRS.get(idx), PVector.sub(a, b.pos)) >= sm.SECTOR_COS_SIM)
+          intrest_forces.add(b.linear_Attraction_CS(a, sm.GOAL_LIMIT, sm.GOAL_SIGMA, sm.GOAL_GAMMA));
     } else if (leader != null) {
-      if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(leader.pos, b.pos)) >= SECTOR_COS_SIM)
-        intrest_forces.add(b.strongAttraction(leader.pos, FOLLOW_LIMIT, FOLLOW_SCALE, FOLLOW_DEADZONE));
+      if (cosine_sim(sm.RAY_DIRS.get(idx), PVector.sub(leader.pos, b.pos)) >= sm.SECTOR_COS_SIM)
+        intrest_forces.add(b.strongAttraction(leader.pos, sm.FOLLOW_LIMIT, sm.FOLLOW_SCALE, sm.FOLLOW_DEADZONE));
     }
 
     // Flocking with stronger forces for tight cohesion
-    for (Boid other : boids) {
+    for (Boid other : sm.boids) {
       if (other != b) {
-        if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(other.pos, b.pos)) >= SECTOR_COS_SIM) {
-          float member_dist = PVector.sub(other.pos, b.pos).mult(PIXEL_METRIC_CONV).mag();
-          if (member_dist <= COMBINED_MEMBER_TO_CLOSE) masked = true;
-          else if (member_dist <= SWARM_DIST) alignment_forces.add(other.vel);
-          member_atts.add(b.strongAttraction(other.pos, COMBINED_ATT_LIMIT, COMBINED_ATT_SCALE, COMBINED_ATT_DEADZONE));
+        if (cosine_sim(sm.RAY_DIRS.get(idx), PVector.sub(other.pos, b.pos)) >= sm.SECTOR_COS_SIM) {
+          float member_dist = PVector.sub(other.pos, b.pos).mult(sm.PIXEL_METRIC_CONV).mag();
+          if (member_dist <= sm.COMBINED_MEMBER_TO_CLOSE) masked = true;
+          else if (member_dist <= sm.SWARM_DIST) alignment_forces.add(other.vel);
+          member_atts.add(b.strongAttraction(other.pos, sm.COMBINED_ATT_LIMIT, sm.COMBINED_ATT_SCALE, sm.COMBINED_ATT_DEADZONE));
         }
-        if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(other.pos, b.pos).rotate(PI)) >= SECTOR_COS_SIM) {
-          member_reps.add(b.strongRepulsion(other.pos, COMBINED_REP_LIMIT, COMBINED_REP_SCALE));
+        if (cosine_sim(sm.RAY_DIRS.get(idx), PVector.sub(other.pos, b.pos).rotate(PI)) >= sm.SECTOR_COS_SIM) {
+          member_reps.add(b.strongRepulsion(other.pos, sm.COMBINED_REP_LIMIT, sm.COMBINED_REP_SCALE));
         }
       }
     }
 
     // Danger from RepulsionZones (R items)
-    for (RepulsionZone z : zones) {
+    for (RepulsionZone z : sm.zones) {
       PVector toZone = PVector.sub(z.pos, b.pos);
       float dist = toZone.mag();
-      float zoneLimit = z.radius + ZONE_DANGER_LIMIT;
+      float zoneLimit = z.radius + sm.ZONE_DANGER_LIMIT;
 
       if (dist < zoneLimit) {
-        boolean forward = cosine_sim(RAY_DIRS.get(idx), toZone) >= SECTOR_COS_SIM;
-        boolean behind  = cosine_sim(RAY_DIRS.get(idx), toZone.rotate(PI)) >= SECTOR_COS_SIM;
+        boolean forward = cosine_sim(sm.RAY_DIRS.get(idx), toZone) >= sm.SECTOR_COS_SIM;
+        boolean behind  = cosine_sim(sm.RAY_DIRS.get(idx), toZone.rotate(PI)) >= sm.SECTOR_COS_SIM;
 
         if (forward) {
           float strength;
@@ -139,7 +134,7 @@ void applyCombined(Boid b, Boid leader) {
           repForce.normalize();
           repForce.mult(strength);
           danger_forces.add(repForce);
-          if (dist < z.radius + ZONE_TO_CLOSE) masked = true;
+          if (dist < z.radius + sm.ZONE_TO_CLOSE) masked = true;
         } else if (behind && dist < z.radius) {
           masked = true;
         }
@@ -147,16 +142,16 @@ void applyCombined(Boid b, Boid leader) {
     }
 
     // Border proximity masks this sector
-    for (PVector bp : border_points)
-      if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(bp, b.pos)) >= SECTOR_COS_SIM) {
-        float member_dist = PVector.sub(bp, b.pos).mult(PIXEL_METRIC_CONV).mag();
-        if (member_dist <= BORDER_TO_CLOSE) masked = true;
+    for (PVector bp : sm.border_points)
+      if (cosine_sim(sm.RAY_DIRS.get(idx), PVector.sub(bp, b.pos)) >= sm.SECTOR_COS_SIM) {
+        float member_dist = PVector.sub(bp, b.pos).mult(sm.PIXEL_METRIC_CONV).mag();
+        if (member_dist <= sm.BORDER_TO_CLOSE) masked = true;
       }
 
     b.create_context_segment(idx, intrest_forces, danger_forces, member_atts, member_reps, alignment_forces, !masked);
   }
 
-  b.context_steering(RAY_DIRS, SECTOR_COS_SIM);
+  b.context_steering(sm.RAY_DIRS, sm.SECTOR_COS_SIM);
 
   b.vel.add(b.acc);
   b.vel.limit(b.maxSpeed);

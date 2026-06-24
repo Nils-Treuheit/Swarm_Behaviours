@@ -196,7 +196,9 @@ class SwarmManager {
   // ---------------------------------------------------------------
   SwarmManager() {
     initGbest();
-    initPheromone();
+    initPheromone(this);
+
+
     // Border walls: dense point grid around the canvas perimeter
     for (int x = 0; x < width; ++x) {
       border_points.add(new PVector(x, 0));
@@ -240,7 +242,7 @@ class SwarmManager {
     }
 
     // Reset ACO pheromone grid
-    if (flag == BehaviourFlag.ACO) initPheromone();
+    if (flag == BehaviourFlag.ACO) initPheromone(this);
   }
 
   // ---------------------------------------------------------------
@@ -478,23 +480,23 @@ class SwarmManager {
         b.update(boids, zones);
       } else {
         if (behaviourFlag == BehaviourFlag.ATT_REP) {
-          applyAttRep(b);
+          applyAttRep(this, b);
         } else if (behaviourFlag == BehaviourFlag.CON_STEER) {
-          applyConSteer(b);
+          applyConSteer(this, b);
         } else if (behaviourFlag == BehaviourFlag.COMBINED) {
-          applyCombined(b, leader);
+          applyCombined(this, b, leader);
         } else if (behaviourFlag == BehaviourFlag.PSO) {
-          applyPSO(b);
+          applyPSO(this, b);
         } else if (behaviourFlag == BehaviourFlag.CUCKER_SMALE) {
-          applyCuckerSmale(b);
+          applyCuckerSmale(this, b);
         } else if (behaviourFlag == BehaviourFlag.VICSEK) {
-          applyVicsek(b);
+          applyVicsek(this, b);
         } else if (behaviourFlag == BehaviourFlag.MORPHOGENETIC) {
-          applyMorphogenetic(b);
+          applyMorphogenetic(this, b);
         } else if (behaviourFlag == BehaviourFlag.ACO) {
-          applyAco(b);
+          applyAco(this, b);
         } else if (behaviourFlag == BehaviourFlag.SPP) {
-          applySpp(b);
+          applySpp(this, b);
         }
         b.edges();
       }
@@ -511,8 +513,8 @@ class SwarmManager {
 
     // ACO global pheromone update
     if (behaviourFlag == BehaviourFlag.ACO) {
-      evaporatePheromone();
-      diffusePheromone();
+      evaporatePheromone(this);
+      diffusePheromone(this);
       // Centre emits a constant semi-local pheromone beacon (home)
       int cx = int(CENTER_X / PHEROMONE_CELL);
       int cy = int(CENTER_Y / PHEROMONE_CELL);

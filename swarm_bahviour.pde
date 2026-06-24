@@ -43,7 +43,6 @@ void draw() {
   }
 
   swarm.display();
-  swarm.removeVisited();
 
   fill(255);
   textSize(48);

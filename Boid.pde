@@ -19,6 +19,13 @@ class Boid {
   // SPP state
   float socialWeight;
 
+  // Carry state
+  boolean carrying = false;
+
+  // Flight trail
+  ArrayList<PVector> trail = new ArrayList<PVector>();
+  final int MAX_TRAIL = 15;
+
   // AttRep behaviour force parameters
   float G = 1.98;
   final int ATT_MULT = 128;
@@ -90,7 +97,7 @@ class Boid {
     contextMaps.add(rep_members);
   }
 
-  void update(ArrayList<Boid> boids, ArrayList<Goal> goals, ArrayList<RepulsionZone> zones) {
+  void update(ArrayList<Boid> boids, ArrayList<RepulsionZone> zones) {
     PVector align = alignment(boids);
     PVector coh = cohesion(boids).mult(0.8);
     PVector sep = separation(boids).mult(1.5);
@@ -98,16 +105,6 @@ class Boid {
     acc.add(align);
     acc.add(coh);
     acc.add(sep);
-
-    for (Goal g : goals) {
-      PVector dir = PVector.sub(g.pos, pos);
-      float d = dir.mag();
-      if (d > 1) {
-        float strength = g.gravity * 0.5 / d;
-        dir.setMag(constrain(strength, 0, maxForce * 3));
-        acc.add(dir);
-      }
-    }
 
     for (RepulsionZone z : zones) {
       float d = PVector.dist(pos, z.pos);
@@ -193,18 +190,6 @@ class Boid {
     return steering;
   }
 
-  PVector attraction(ArrayList<Goal> goals) {
-    PVector force = new PVector();
-    for (Goal g : goals) {
-      PVector dir = PVector.sub(g.pos, pos);
-      float d = dir.mag();
-      dir.normalize();
-      dir.mult(g.gravity / max(d, 1));
-      force.add(dir);
-    }
-    return force;
-  }
-
   PVector repulsion(ArrayList<RepulsionZone> zones) {
     PVector force = new PVector();
     for (RepulsionZone z : zones) {
@@ -233,8 +218,24 @@ class Boid {
     if (pos.y < 0) pos.y = height;
   }
 
+  void recordTrail() {
+    trail.add(pos.copy());
+    while (trail.size() > MAX_TRAIL) trail.remove(0);
+  }
+
   void display() {
-    stroke(200);
+    // Flight trail
+    int sz = trail.size();
+    for (int i = 1; i < sz; i++) {
+      float frac = float(i) / sz;
+      stroke(180, 180, 200, frac * 180);
+      strokeWeight(frac * 2.5);
+      line(trail.get(i - 1).x, trail.get(i - 1).y, trail.get(i).x, trail.get(i).y);
+    }
+    strokeWeight(1);
+
+    if (carrying) stroke(0, 255, 255);
+    else stroke(200);
     point(pos.x, pos.y);
   }
 

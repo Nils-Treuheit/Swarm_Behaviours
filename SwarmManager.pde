@@ -15,7 +15,6 @@ enum BehaviourFlag {
 
 class SwarmManager {
   ArrayList<Boid> boids = new ArrayList<Boid>();
-  ArrayList<Goal> goals = new ArrayList<Goal>();
   ArrayList<RepulsionZone> zones = new ArrayList<RepulsionZone>();
 
   int targetCount = 10;
@@ -125,6 +124,10 @@ class SwarmManager {
   final float SPP_REPEL_SCALE = 0.08;
   final float SPP_MAX_FORCE = 0.5;
 
+  // Center point for item delivery
+  final int CENTER_X = 2400;
+  final int CENTER_Y = 1600;
+
   Boid findLeader() {
     Boid leader = null;
     float minDist = Float.MAX_VALUE;
@@ -229,12 +232,8 @@ class SwarmManager {
   }
 
   void setupAutoPoints() {
-    if (behaviourFlag == BehaviourFlag.BASIC) {
-      for (int it = 0; it < 8; ++it)
-        goals.add(new Goal(randomOutsideHud().x, randomOutsideHud().y, random(30, 80)));
-      for (int it = 0; it < 4; ++it)
-        zones.add(new RepulsionZone(randomOutsideHud().x, randomOutsideHud().y, random(80, 200)));
-    } else if (behaviourFlag == BehaviourFlag.ATT_REP || behaviourFlag == BehaviourFlag.PSO) {
+    if (behaviourFlag == BehaviourFlag.BASIC
+        || behaviourFlag == BehaviourFlag.ATT_REP || behaviourFlag == BehaviourFlag.PSO) {
       for (int it = 0; it < 8; ++it)
         attractors.add(randomOutsideHud());
       for (int it = 0; it < 4; ++it)
@@ -258,17 +257,9 @@ class SwarmManager {
   void autoUpdate(int portion) {
     if (ticks >= MAX_TICKS) {
       ticks = 0;
-      if (behaviourFlag == BehaviourFlag.BASIC) {
-        for (int it = 0; it < max(goals.size() / portion, 1); ++it) {
-          if (!goals.isEmpty()) goals.remove(0);
-          goals.add(new Goal(randomOutsideHud().x, randomOutsideHud().y, random(30, 80)));
-        }
-        for (int it = 0; it < max(zones.size() / portion, 1); ++it) {
-          if (!zones.isEmpty()) zones.remove(0);
-          zones.add(new RepulsionZone(randomOutsideHud().x, randomOutsideHud().y, random(80, 200)));
-        }
-    } else if (behaviourFlag == BehaviourFlag.ATT_REP || behaviourFlag == BehaviourFlag.PSO
-        || behaviourFlag == BehaviourFlag.MORPHOGENETIC || behaviourFlag == BehaviourFlag.ACO) {
+      if (behaviourFlag == BehaviourFlag.BASIC
+          || behaviourFlag == BehaviourFlag.ATT_REP || behaviourFlag == BehaviourFlag.PSO
+          || behaviourFlag == BehaviourFlag.MORPHOGENETIC || behaviourFlag == BehaviourFlag.ACO) {
         for (int it = 0; it < max(attractors.size() / portion, 1); ++it) {
           if (!attractors.isEmpty()) attractors.remove(0);
           attractors.add(randomOutsideHud());
@@ -303,45 +294,50 @@ class SwarmManager {
     ++ticks;
   }
 
-  void removeVisited() {
-    if (behaviourFlag == BehaviourFlag.ATT_REP
+  void checkPickup() {
+    // All modes that use PVector-based targets
+    if (behaviourFlag == BehaviourFlag.BASIC
+        || behaviourFlag == BehaviourFlag.ATT_REP
         || behaviourFlag == BehaviourFlag.COMBINED
         || behaviourFlag == BehaviourFlag.PSO
         || behaviourFlag == BehaviourFlag.MORPHOGENETIC
         || behaviourFlag == BehaviourFlag.ACO) {
-      ArrayList<PVector> updated = new ArrayList<PVector>();
-      for (PVector a : attractors) {
-        boolean add = true;
-        for (Boid b : boids)
-          if (abs(b.pos.x - a.x) < 2 && abs(b.pos.y - a.y) < 2) {
-            add = false;
+      for (int i = attractors.size() - 1; i >= 0; i--) {
+        PVector a = attractors.get(i);
+        for (Boid b : boids) {
+          if (!b.carrying && PVector.dist(b.pos, a) < 2) {
+            b.carrying = true;
+            attractors.remove(i);
+            if (behaviourFlag == BehaviourFlag.PSO) {
+              for (Boid pb : boids) pb.pbestFitness = Float.MAX_VALUE;
+              initGbest();
+            }
             break;
           }
-        if (add) updated.add(a.copy());
-      }
-      attractors.clear();
-      attractors.addAll(updated);
-      // Reset PSO state when targets change
-      if (behaviourFlag == BehaviourFlag.PSO) {
-        for (Boid b : boids) b.pbestFitness = Float.MAX_VALUE;
-        initGbest();
+        }
       }
     } else if (behaviourFlag == BehaviourFlag.CON_STEER
         || behaviourFlag == BehaviourFlag.CUCKER_SMALE
         || behaviourFlag == BehaviourFlag.VICSEK
         || behaviourFlag == BehaviourFlag.SPP) {
-      ArrayList<PVector> updated = new ArrayList<PVector>();
-      for (PVector g : goalsCS) {
-        boolean add = true;
-        for (Boid b : boids)
-          if (abs(b.pos.x - g.x) < 2 && abs(b.pos.y - g.y) < 2) {
-            add = false;
+      for (int i = goalsCS.size() - 1; i >= 0; i--) {
+        PVector g = goalsCS.get(i);
+        for (Boid b : boids) {
+          if (!b.carrying && PVector.dist(b.pos, g) < 2) {
+            b.carrying = true;
+            goalsCS.remove(i);
             break;
           }
-        if (add) updated.add(g.copy());
+        }
       }
-      goalsCS.clear();
-      goalsCS.addAll(updated);
+    }
+  }
+
+  void checkRelease() {
+    for (Boid b : boids) {
+      if (b.carrying && dist(b.pos.x, b.pos.y, CENTER_X, CENTER_Y) < 10) {
+        b.carrying = false;
+      }
     }
   }
 
@@ -374,6 +370,13 @@ class SwarmManager {
   void update() {
     managePopulation();
 
+    // 1. Pickup: carrying boids pick up targets they touch
+    checkPickup();
+
+    // 2. Check if any boid carries an item
+    boolean anyCarrying = false;
+    for (Boid b : boids) if (b.carrying) { anyCarrying = true; break; }
+
     Boid leader = null;
     if (behaviourFlag == BehaviourFlag.COMBINED && !attractors.isEmpty() && !boids.isEmpty()) {
       leader = findLeader();
@@ -394,9 +397,11 @@ class SwarmManager {
       }
     }
 
+    PVector center = new PVector(CENTER_X, CENTER_Y);
+
     for (Boid b : boids) {
-      // Mouse forces (M mode)
-      if (mouseTarget != null) {
+      // Mouse forces (M mode) — skip target attraction for carrying boids
+      if (mouseTarget != null && !b.carrying) {
         b.linear_attraction(mouseTarget, ATT_MULT);
       }
       if (mouseDanger != null) {
@@ -420,8 +425,19 @@ class SwarmManager {
         b.acc.add(hudPush);
       }
 
+      // Center attraction for carrying boids (10x target strength)
+      if (b.carrying && anyCarrying) {
+        b.linear_attraction(center, ATT_MULT * 10);
+      }
+
+      // Universal target attraction for BASIC mode (skipped when carrying)
+      if (behaviourFlag == BehaviourFlag.BASIC && !b.carrying) {
+        for (PVector a : attractors)
+          b.linear_attraction(a, ATT_MULT);
+      }
+
       if (behaviourFlag == BehaviourFlag.BASIC) {
-        b.update(boids, goals, zones);
+        b.update(boids, zones);
       } else {
         if (behaviourFlag == BehaviourFlag.ATT_REP) {
           applyAttRep(b);
@@ -444,7 +460,12 @@ class SwarmManager {
         }
         b.edges();
       }
+
+      b.recordTrail();
     }
+
+    // 3. Release: carrying boids at center release their item
+    checkRelease();
 
     // ACO global pheromone update (once per frame)
     if (behaviourFlag == BehaviourFlag.ACO) {
@@ -454,8 +475,10 @@ class SwarmManager {
   }
 
   void applyAttRep(Boid b) {
-    for (PVector a : attractors)
-      b.linear_attraction(a, ATT_MULT);
+    if (!b.carrying) {
+      for (PVector a : attractors)
+        b.linear_attraction(a, ATT_MULT);
+    }
 
     for (PVector r : repellents)
       b.simpleExponential_repulsion(r, PERLIMITER, REP_MULT);
@@ -485,9 +508,11 @@ class SwarmManager {
       ArrayList<PVector> alignment_forces = new ArrayList<PVector>();
       boolean masked = false;
 
-      for (PVector goal : goalsCS)
-        if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(goal, b.pos)) >= SECTOR_COS_SIM)
-          intrest_forces.add(b.linear_Attraction_CS(goal, GOAL_LIMIT, GOAL_SIGMA, GOAL_GAMMA));
+      if (!b.carrying) {
+        for (PVector goal : goalsCS)
+          if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(goal, b.pos)) >= SECTOR_COS_SIM)
+            intrest_forces.add(b.linear_Attraction_CS(goal, GOAL_LIMIT, GOAL_SIGMA, GOAL_GAMMA));
+      }
 
       for (Boid other : boids) {
         if (other != b) {
@@ -540,7 +565,7 @@ class SwarmManager {
       ArrayList<PVector> alignment_forces = new ArrayList<PVector>();
       boolean masked = false;
 
-      if (isLeader) {
+      if (isLeader && !b.carrying) {
         // Leader navigates toward attractors
         for (PVector a : attractors)
           if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(a, b.pos)) >= SECTOR_COS_SIM)
@@ -641,9 +666,11 @@ class SwarmManager {
     PVector psoForce = PVector.add(inertia, cognitive);
     psoForce.add(social);
 
-    // Attraction to attractors
-    for (PVector a : attractors)
-      b.linear_attraction(a, ATT_MULT);
+    // Attraction to attractors (skip if carrying)
+    if (!b.carrying) {
+      for (PVector a : attractors)
+        b.linear_attraction(a, ATT_MULT);
+    }
 
     // Repulsion from repellents
     for (PVector r : repellents)
@@ -687,9 +714,11 @@ class SwarmManager {
       alignment.div(totalWeight);
     }
 
-    // Attraction toward goalsCS
-    for (PVector g : goalsCS)
-      b.linear_attraction(g, int(ATT_MULT * CUCKER_ATTR_SCALE));
+    // Attraction toward goalsCS (skip if carrying)
+    if (!b.carrying) {
+      for (PVector g : goalsCS)
+        b.linear_attraction(g, int(ATT_MULT * CUCKER_ATTR_SCALE));
+    }
 
     // Danger avoidance
     for (PVector d : dangersCS)
@@ -741,9 +770,11 @@ class SwarmManager {
     vicsekForce.limit(b.maxForce);
     b.acc.add(vicsekForce);
 
-    // Attraction toward goalsCS
-    for (PVector g : goalsCS)
-      b.linear_attraction(g, int(ATT_MULT * CUCKER_ATTR_SCALE));
+    // Attraction toward goalsCS (skip if carrying)
+    if (!b.carrying) {
+      for (PVector g : goalsCS)
+        b.linear_attraction(g, int(ATT_MULT * CUCKER_ATTR_SCALE));
+    }
 
     // Danger avoidance
     for (PVector d : dangersCS)
@@ -786,10 +817,12 @@ class SwarmManager {
     b.morphogen *= MORPH_DECAY;
     b.morphogen = constrain(b.morphogen, 0, 2);
 
-    // Goal attraction scaled by morphogen
-    for (PVector a : attractors) {
-      if (b.morphogen > 0.5) {
-        b.linear_attraction(a, int(ATT_MULT * b.morphogen));
+    // Goal attraction scaled by morphogen (skip if carrying)
+    if (!b.carrying) {
+      for (PVector a : attractors) {
+        if (b.morphogen > 0.5) {
+          b.linear_attraction(a, int(ATT_MULT * b.morphogen));
+        }
       }
     }
 
@@ -847,9 +880,11 @@ class SwarmManager {
       b.acc.add(gradient);
     }
 
-    // Goal attraction to attractors
-    for (PVector a : attractors)
-      b.linear_attraction(a, ATT_MULT);
+    // Goal attraction to attractors (skip if carrying)
+    if (!b.carrying) {
+      for (PVector a : attractors)
+        b.linear_attraction(a, ATT_MULT);
+    }
 
     // Repulsion from repellents
     for (PVector r : repellents)
@@ -896,9 +931,11 @@ class SwarmManager {
       }
     }
 
-    // Attraction toward goalsCS
-    for (PVector g : goalsCS)
-      b.linear_attraction(g, int(ATT_MULT * CUCKER_ATTR_SCALE));
+    // Attraction toward goalsCS (skip if carrying)
+    if (!b.carrying) {
+      for (PVector g : goalsCS)
+        b.linear_attraction(g, int(ATT_MULT * CUCKER_ATTR_SCALE));
+    }
 
     // Danger avoidance
     for (PVector d : dangersCS)
@@ -922,23 +959,23 @@ class SwarmManager {
   }
 
   void display() {
-    // Draw ACO pheromone overlay
+    // Draw ACO pheromone overlay (yellow dots)
     if (behaviourFlag == BehaviourFlag.ACO) {
-      noStroke();
+      stroke(255, 220, 60, 100);
+      strokeWeight(3);
       for (int x = 0; x < PHEROMONE_COLS; x++) {
         for (int y = 0; y < PHEROMONE_ROWS; y++) {
           if (pheromone[x][y] > 0.5) {
-            float alpha = constrain(pheromone[x][y] / 20, 0, 60);
-            fill(180, 140, 40, alpha);
-            rect(x * PHEROMONE_CELL, y * PHEROMONE_CELL, PHEROMONE_CELL, PHEROMONE_CELL);
+            point(x * PHEROMONE_CELL + PHEROMONE_CELL / 2, y * PHEROMONE_CELL + PHEROMONE_CELL / 2);
           }
         }
       }
-      fill(255, 255, 255, 255);
+      strokeWeight(1);
     }
 
     // Draw mode-specific targets (green)
-    if (behaviourFlag == BehaviourFlag.ATT_REP || behaviourFlag == BehaviourFlag.PSO
+    if (behaviourFlag == BehaviourFlag.BASIC
+        || behaviourFlag == BehaviourFlag.ATT_REP || behaviourFlag == BehaviourFlag.PSO
         || behaviourFlag == BehaviourFlag.MORPHOGENETIC || behaviourFlag == BehaviourFlag.ACO
         || behaviourFlag == BehaviourFlag.COMBINED) {
       stroke(0, 255, 0);
@@ -951,8 +988,6 @@ class SwarmManager {
       stroke(0, 255, 0);
       strokeWeight(8);
       for (PVector g : goalsCS) point(g.x, g.y);
-    } else if (behaviourFlag == BehaviourFlag.BASIC) {
-      for (Goal g : goals) g.display();
     }
 
     // Draw auto-spawned dangersCS (mode-specific)
@@ -987,6 +1022,17 @@ class SwarmManager {
       strokeWeight(12);
       point(mouseDanger.x, mouseDanger.y);
     }
+
+    // Draw cornflowerblue center circle if any boid carries an item
+    boolean anyCarrying = false;
+    for (Boid b : boids) if (b.carrying) { anyCarrying = true; break; }
+    if (anyCarrying) {
+      noFill();
+      stroke(100, 149, 237);
+      strokeWeight(4);
+      ellipse(CENTER_X, CENTER_Y, 48, 48);
+      strokeWeight(1);
+    }
   }
 
   void managePopulation() {
@@ -1006,8 +1052,6 @@ class SwarmManager {
   void addTarget(float x, float y) {
     switch (behaviourFlag) {
       case BASIC:
-        goals.add(new Goal(x, y, random(30, 80)));
-        break;
       case ATT_REP:
       case PSO:
       case MORPHOGENETIC:
@@ -1048,8 +1092,6 @@ class SwarmManager {
   void removeLastTarget() {
     switch (behaviourFlag) {
       case BASIC:
-        if (!goals.isEmpty()) goals.remove(goals.size() - 1);
-        break;
       case ATT_REP:
       case PSO:
       case MORPHOGENETIC:
@@ -1100,7 +1142,6 @@ class SwarmManager {
   }
 
   void clearAll() {
-    goals.clear();
     zones.clear();
     attractors.clear();
     repellents.clear();

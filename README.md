@@ -45,8 +45,8 @@ An interactive multi-agent swarm simulation in Processing (Java) that lets you e
 | Green point      | ●        | Target / goal — boids seek these                |
 | Red point        | ●        | Danger point — high local repulsion             |
 | Red unfilled circle | ○   | Repulsion zone — softer area-wide avoidance     |
-| White point      | ●        | Boid (normal)                                   |
-| Cyan point       | ●        | Boid carrying an item (returning to center)     |
+| White point      | ●        | Boid (normal); dot size scales with mass        |
+| Cyan point       | ●        | Boid carrying an item (dot size = mass)         |
 | Blue circle      | ○        | Center delivery zone (cornflowerblue, active when any boid carries) |
 | Cyan point (M)   | ●        | Moving mouse target when held                   |
 | Orange point (M) | ●        | Moving mouse danger when held                   |
@@ -115,8 +115,8 @@ The top-left 800×640 area is reserved for the HUD. Auto-spawned points never ap
 | `swarm_bahviour.pde`          | Main entry: setup, draw loop, key/mouse dispatch, HUD     |
 | `SwarmManager.pde`            | Core manager: update loop, universal forces, display,     |
 |                               | point management, population control                      |
-| `Boid.pde`                    | Boid agent: physics, force functions, rendering,          |
-|                               | context steering                                           |
+| `Boid.pde`                    | Boid agent: mass/size physics, force functions, rendering,|
+|                               | context steering, `integrate()` method                    |
 | `RepulsionZone.pde`           | Circular repulsion zone (R items)                         |
 | `AttRepBehaviour.pde`         | Attraction/Repulsion (mode 2)                             |
 | `ContextSteeringBehaviour.pde`| Context steering (mode 3) + Combined leader-follower (4)  |
@@ -128,5 +128,12 @@ The top-left 800×640 area is reserved for the HUD. Auto-spawned points never ap
 | `SppBehaviour.pde`            | Social Positioning Protocol (mode 0)                      |
 
 Each behaviour module defines a single `apply*` method on the `SwarmManager` class. Processing concatenates all `.pde` files, so methods can be spread across files while belonging to the same class.
+
+- **Mass / Size**: each boid spawns with a random mass 0.5–2.0.
+  - `maxSpeed = 2.5 / mass` — heavy boids are slower.
+  - `maxForce = 0.08 / mass` — heavy boids steer less aggressively.
+  - `acc /= mass` during integration (`F = ma`), so identical forces produce less acceleration on heavy boids.
+  - Trail thickness and dot size scale linearly with mass (4–7 px for the dot, `frac * 2.5 * mass` for trail stroke).
+  - Light boids zip around with weak force impact; heavy boids lumber powerfully through the swarm.
 
 - **Border**: a dense ring of border points (every pixel on the canvas edge) exerts exponential repulsion in all modes.

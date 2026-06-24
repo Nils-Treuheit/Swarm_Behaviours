@@ -191,13 +191,11 @@ class SwarmManager {
       border_points.add(new PVector(0, y));
       border_points.add(new PVector(width, y));
     }
+    setupAutoPoints();
   }
 
   void initBehaviour(BehaviourFlag flag) {
     this.behaviourFlag = flag;
-    this.ticks = 0;
-    clearAll();
-    initGbest();
 
     // Reset PSO personal bests for all boids
     for (Boid b : boids) {
@@ -221,14 +219,6 @@ class SwarmManager {
 
     // Reset ACO pheromone grid
     if (flag == BehaviourFlag.ACO) initPheromone();
-
-    if (flag == BehaviourFlag.BASIC || flag == BehaviourFlag.ATT_REP
-        || flag == BehaviourFlag.CON_STEER || flag == BehaviourFlag.COMBINED
-        || flag == BehaviourFlag.PSO || flag == BehaviourFlag.CUCKER_SMALE
-        || flag == BehaviourFlag.VICSEK || flag == BehaviourFlag.MORPHOGENETIC
-        || flag == BehaviourFlag.ACO || flag == BehaviourFlag.SPP) {
-      setupAutoPoints();
-    }
   }
 
   void setupAutoPoints() {

@@ -6,15 +6,23 @@
 // emits a constant semi-local pheromone beacon (home).
 //
 // Non-carrying boids (searching):
-//   - Weak attraction to green targets (25% of normal)
-//   - Follow pheromone gradient to converge on trails left by
-//     returning boids
-//   - Random wander for exploration
+//   - Light pheromone deposit
+//   - Repelled by pheromones (anti-gradient) — avoids explored areas,
+//     spreading the swarm across the canvas
+//   - Guided random walk (velocity persistence + noise) for natural
+//     exploration patterns
+//   - Weak attraction to green targets to eventually find food
+//   - Basic inter-boid collision avoidance, no active cohesion
 //
 // Carrying boids (returning to centre):
-//   - Follow pheromone gradient uphill toward the centre emitter
-//   - Deposit heavy pheromone (4x) on the return path
+//   - Attracted to pheromones (gradient following) — follows trails
+//     back toward the centre emitter
+//   - Heavy pheromone deposit (4x) to reinforce the return trail
+//   - Inter-boid cohesion + repulsion for safe spacing
 //   - Slight wander for natural braided trails
+//
+// Behaviour switches instantly when a boid picks up or drops
+// an item — no timer or phase needed.
 //
 // Pheromone evaporates and diffuses each frame. Yellow dots
 // (size/alpha mapped to intensity) show trail density.
@@ -53,6 +61,22 @@ void diffusePheromone(SwarmManager sm) {
 
 // ---------------------------------------------------------------
 // applyAco: per-boid ACO logic
+//
+// Non-carrying (searching):
+//   - Light pheromone deposit
+//   - Guided random walk (velocity persistence + noise)
+//   - Repelled by pheromones (anti-gradient) — avoids explored areas
+//   - Weak target attraction to find food
+//   - Basic inter-boid repulsion (no active cohesion)
+//
+// Carrying (returning to centre):
+//   - Heavy pheromone deposit (4x) to mark return trail
+//   - Attracted to pheromones (gradient following) toward centre
+//   - Inter-boid cohesion + repulsion for safe spacing
+//   - Slight wander for natural braided trails
+//
+// Behaviour switches instantly when carrying status changes,
+// no timer/phase needed.
 // ---------------------------------------------------------------
 void applyAco(SwarmManager sm, Boid b) {
   // Map boid position to pheromone grid cell
@@ -64,14 +88,9 @@ void applyAco(SwarmManager sm, Boid b) {
   // Deposit pheromone at current cell
   float deposit = sm.PHEROMONE_DEPOSIT;
   if (b.carrying) {
-    deposit *= 4; // heavy trail back to centre
-  } else {
-    // Bonus deposit near attractors to mark "food sources"
-    for (PVector a : sm.attractors) {
-      float d = PVector.dist(b.pos, a);
-      if (d < 200) deposit *= (200 - d) / 200 * 3;
-    }
+    deposit *= 4; // heavy return trail
   }
+  // Searching boids deposit only the base amount (no bonus near attractors)
   sm.pheromone[px][py] = min(sm.pheromone[px][py] + deposit, 100);
 
   // Read pheromone gradient (difference to each of the 8 neighbours)
@@ -87,21 +106,26 @@ void applyAco(SwarmManager sm, Boid b) {
   }
 
   if (b.carrying) {
-    // Returning to centre: follow gradient uphill toward centre emitter
+    // Carrying: attracted to pheromones — follow gradient toward centre emitter
     if (gradient.mag() > 0.1) {
       gradient.setMag(sm.PHEROMONE_INFLUENCE * 2);
       b.acc.add(gradient);
     }
     b.acc.add(PVector.random2D().mult(0.15));
   } else {
-    // Searching: weak attraction to targets + explore via wander
-    for (PVector a : sm.attractors)
-      b.linear_attraction(a, int(sm.ATT_MULT * 0.25));
+    // Searching: repelled by pheromones — anti-gradient avoids explored areas
     if (gradient.mag() > 0.1) {
-      gradient.setMag(sm.PHEROMONE_INFLUENCE * 1.2);
-      b.acc.add(gradient);
+      PVector anti = PVector.mult(gradient, -1);
+      anti.setMag(sm.PHEROMONE_INFLUENCE * 1.2);
+      b.acc.add(anti);
     }
-    b.acc.add(PVector.random2D().mult(0.4));
+    // Guided random walk: persist velocity direction + small noise
+    PVector forward = b.vel.copy().normalize().mult(0.35);
+    PVector noise = PVector.random2D().mult(0.2);
+    b.acc.add(PVector.add(forward, noise));
+    // Weak target attraction to find food
+    for (PVector a : sm.attractors)
+      b.linear_attraction(a, int(sm.ATT_MULT * 0.2));
   }
 
   // Repulsion from danger dots
@@ -112,11 +136,17 @@ void applyAco(SwarmManager sm, Boid b) {
   for (PVector bp : sm.border_points)
     b.simpleExponential_repulsion(bp, sm.BORDER_PERLIMITER, sm.REP_MULT);
 
-  // Inter-boid cohesion + repulsion
+  // Inter-boid forces
   for (Boid other : sm.boids) {
     if (other != b) {
-      b.comfy_attraction(other.pos, sm.COMFY_DIST * 1.5, sm.DRONE_ATT_MULT);
-      b.complexExponential_repulsion(other.pos, sm.DRONE_PERLIMITER, sm.DRONE_ATT_MULT, sm.DRONE_REP_MULT * 2);
+      if (b.carrying) {
+        // Carrying: maintain safe distance with both cohesion and repulsion
+        b.comfy_attraction(other.pos, sm.COMFY_DIST * 1.5, sm.DRONE_ATT_MULT);
+        b.complexExponential_repulsion(other.pos, sm.DRONE_PERLIMITER, sm.DRONE_ATT_MULT, sm.DRONE_REP_MULT * 2);
+      } else {
+        // Searching: just basic collision avoidance, no active cohesion
+        b.complexExponential_repulsion(other.pos, sm.DRONE_PERLIMITER, sm.DRONE_ATT_MULT, sm.DRONE_REP_MULT);
+      }
     }
   }
 

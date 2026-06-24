@@ -57,8 +57,5 @@ void applyPSO(SwarmManager sm, Boid b) {
 
   // Blend PSO force with existing acc
   b.acc.add(psoForce.limit(10));
-  b.vel.add(b.acc);
-  b.vel.limit(b.maxSpeed);
-  b.pos.add(b.vel);
-  b.acc.mult(0);
+  b.integrate();
 }

@@ -71,10 +71,7 @@ void applyConSteer(SwarmManager sm, Boid b) {
 
   b.context_steering(sm.RAY_DIRS, sm.SECTOR_COS_SIM);
 
-  b.vel.add(b.acc);
-  b.vel.limit(b.maxSpeed);
-  b.pos.add(b.vel);
-  b.acc.mult(0);
+  b.integrate();
 }
 
 // ---------------------------------------------------------------
@@ -153,8 +150,5 @@ void applyCombined(SwarmManager sm, Boid b, Boid leader) {
 
   b.context_steering(sm.RAY_DIRS, sm.SECTOR_COS_SIM);
 
-  b.vel.add(b.acc);
-  b.vel.limit(b.maxSpeed);
-  b.pos.add(b.vel);
-  b.acc.mult(0);
+  b.integrate();
 }

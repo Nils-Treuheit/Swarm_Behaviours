@@ -58,8 +58,5 @@ void applyMorphogenetic(SwarmManager sm, Boid b) {
     }
   }
 
-  b.vel.add(b.acc);
-  b.vel.limit(b.maxSpeed);
-  b.pos.add(b.vel);
-  b.acc.mult(0);
+  b.integrate();
 }

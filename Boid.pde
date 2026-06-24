@@ -48,7 +48,8 @@ class Boid {
   // ----- SPP state -----
   float socialWeight;     // Social role weight [0..1], similar = attract, different = repel
 
-  // ----- Carry mechanic -----
+  // ----- Mass / physics -----
+  float mass;               // 0.5 (light/small/fast) to 2.0 (heavy/big/slow)
   boolean carrying = false; // True when boid holds a target item
   boolean dead = false;     // True when health ≤ 0 (removed next frame)
 
@@ -104,6 +105,9 @@ class Boid {
     socialWeight = random(0, 1);
     health = random(1, 11);
     dead = false;
+    mass = random(0.5, 2.0);
+    maxSpeed = 2.5 / mass;
+    maxForce = 0.08 / mass;
   }
 
   // ----- Constructor (with context steering initialisation) -----
@@ -168,10 +172,7 @@ class Boid {
       }
     }
 
-    vel.add(acc);
-    vel.limit(maxSpeed);
-    pos.add(vel);
-    acc.mult(0);
+    integrate();
 
     edges();
   }
@@ -252,6 +253,18 @@ class Boid {
   }
 
   // ---------------------------------------------------------------
+  // integrate: apply acceleration scaled by mass, cap speed, move,
+  // then clear acceleration for the next frame.
+  //   vel += acc / mass   (F = ma → a = F/m)
+  // ---------------------------------------------------------------
+  void integrate() {
+    vel.add(PVector.div(acc, mass));
+    vel.limit(maxSpeed);
+    pos.add(vel);
+    acc.mult(0);
+  }
+
+  // ---------------------------------------------------------------
   // recordTrail: store current position for the flight trail
   // ---------------------------------------------------------------
   void recordTrail() {
@@ -261,8 +274,8 @@ class Boid {
 
   // ---------------------------------------------------------------
   // display: render the boid as a dot + fading trail
-  //   - White dot (strokeWeight 5) when not carrying
-  //   - Cyan dot (strokeWeight 5) when carrying
+  //   - Dot size = 3 + mass * 2 (mass 0.5 → 4, mass 2.0 → 7)
+  //   - Cyan when carrying, white otherwise
   //   - Fading trail (last 15 positions, alpha/size gradient)
   // ---------------------------------------------------------------
   void display() {
@@ -270,10 +283,11 @@ class Boid {
     for (int i = 1; i < sz; i++) {
       float frac = float(i) / sz;
       stroke(180, 180, 200, frac * 180);
-      strokeWeight(frac * 2.5);
+      strokeWeight(frac * 2.5 * mass);
       line(trail.get(i - 1).x, trail.get(i - 1).y, trail.get(i).x, trail.get(i).y);
     }
-    strokeWeight(5);
+    float dotSize = 3 + mass * 2;
+    strokeWeight(dotSize);
     if (carrying) stroke(0, 255, 255);
     else          stroke(200);
     point(pos.x, pos.y);

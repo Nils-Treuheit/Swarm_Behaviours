@@ -1,5 +1,9 @@
 import java.util.ArrayList;
 
+// ============================================================
+// Behaviour Flag Enum
+// Maps number keys 1-0 to each swarm intelligence algorithm.
+// ============================================================
 enum BehaviourFlag {
   BASIC,
   ATT_REP,
@@ -13,28 +17,147 @@ enum BehaviourFlag {
   SPP
 }
 
+// ============================================================
+// SwarmManager
+//
+// Core class that manages the boid population, universal forces
+// (mouse, danger points, repulsion zones, HUD push, centre
+// attraction for carrying boids), target pickup/release, the
+// main update loop, and display.
+//
+// Each behaviour's apply* method lives in its own module file
+// (e.g. AttRepBehaviour.pde, AcoBehaviour.pde, etc.) but all
+// are member functions of this class — Processing concatenates
+// all .pde files in the sketch directory into one compilation
+// unit, so methods can be defined across files.
+// ============================================================
 class SwarmManager {
+  // ----- Population -----
   ArrayList<Boid> boids = new ArrayList<Boid>();
   ArrayList<RepulsionZone> zones = new ArrayList<RepulsionZone>();
-
   int targetCount = 10;
   BehaviourFlag behaviourFlag = BehaviourFlag.ATT_REP;
 
-  // AttRep behaviour data
-  ArrayList<PVector> attractors = new ArrayList<PVector>();
-  ArrayList<PVector> repellents = new ArrayList<PVector>();
+  // ----- Target / danger / waypoint lists -----
+  // attractors/repellents: used by BASIC, ATT_REP, PSO, MORPH, ACO, COMBINED
+  ArrayList<PVector> attractors  = new ArrayList<PVector>();
+  ArrayList<PVector> repellents  = new ArrayList<PVector>();
   ArrayList<PVector> border_points = new ArrayList<PVector>();
 
-  // ConSteer behaviour data
-  ArrayList<PVector> goalsCS = new ArrayList<PVector>();
-  ArrayList<PVector> dangersCS = new ArrayList<PVector>();
+  // goalsCS/dangersCS: used by CON_STEER, CUCKER_SMALE, VICSEK, SPP
+  ArrayList<PVector> goalsCS     = new ArrayList<PVector>();
+  ArrayList<PVector> dangersCS   = new ArrayList<PVector>();
+
+  // ----- ConSteer / Combined shared structures -----
   ArrayList<PVector> RAY_DIRS = new ArrayList<PVector>();
   float SECTOR_COS_SIM;
 
-  // HUD safe zone – no points auto-spawn here
+  // ----- HUD safe zone (800x640 top-left) -----
+  // Boids and points never spawn inside this region.
   final float HUD_W = 800;
   final float HUD_H = 640;
 
+  // ----- Auto-respawn timer -----
+  // Periodically rotates target/danger positions so the environment stays dynamic.
+  int ticks = 0;
+  final int MAX_TICKS = 450;
+  final int UPDATE_PORTION = 2;
+  final float PIXEL_METRIC_CONV = 0.06;
+
+  // ----- ConSteer constants -----
+  final float BORDER_TO_CLOSE     = 2;
+  final float DANGER_TO_CLOSE     = 8;
+  final float MEMBER_TO_CLOSE     = 4;
+  final float SWARM_DIST          = 12;
+  final float GOAL_LIMIT          = 30;
+  final float GOAL_SIGMA          = -3;
+  final float GOAL_GAMMA          = 25;
+  final float DANGER_LIMIT        = 40;
+  final float DANGER_CUT_OFF      = 5;
+  final float DANGER_SIGMA        = 3.85;
+  final float DANGER_GAMMA        = 18.5;
+  final float DANGER_ALPHA        = 20;
+  final float MEMBER_REP_LIMIT    = 30;
+  final float MEMBER_REP_SIGMA    = 18;
+  final float MEMBER_REP_GAMMA    = 1.5;
+  final float MEMBER_REP_ALPHA    = 0.1;
+  final float MEMBER_ATT_LIMIT    = 30;
+  final float MEMBER_ATT_CUT_OFF  = 22;
+
+  // ----- Combined mode constants -----
+  final float ZONE_DANGER_LIMIT        = 100;
+  final float ZONE_TO_CLOSE            = 10;
+  final float COMBINED_REP_SCALE       = 200;
+  final float COMBINED_REP_LIMIT       = 30;
+  final float COMBINED_ATT_SCALE       = 3.0;
+  final float COMBINED_ATT_DEADZONE    = 3.0;
+  final float COMBINED_ATT_LIMIT       = 50;
+  final float COMBINED_MEMBER_TO_CLOSE = 3.0;
+  final float FOLLOW_SCALE             = 5.0;
+  final float FOLLOW_DEADZONE          = 4.0;
+  final float FOLLOW_LIMIT             = 60;
+
+  // ----- PSO state -----
+  PVector gbest = new PVector();
+  float gbestFitness = Float.MAX_VALUE;
+  final float PSO_INERTIA   = 0.7;
+  final float PSO_COGNITIVE = 1.5;
+  final float PSO_SOCIAL    = 1.5;
+
+  // ----- Cucker-Smale constants -----
+  final float CUCKER_H          = 80.0;
+  final float CUCKER_ATTR_SCALE = 0.5;
+  final float CUCKER_ATTR_LIMIT = 40;
+
+  // ----- Vicsek constants -----
+  final float VICSEK_RADIUS = 120;
+  final float VICSEK_NOISE  = 0.15;
+  final float VICSEK_SPEED  = 3.0;
+
+  // ----- Morphogenetic constants -----
+  final float MORPH_COMM_RADIUS   = 150;
+  final float MORPH_DECAY         = 0.98;
+  final float MORPH_DIFFUSION     = 0.05;
+  final float MORPH_PRODUCTION    = 0.01;
+  final float MORPH_ATTRACT_SCALE = 80;
+
+  // ----- ACO constants -----
+  final int PHEROMONE_CELL = 50;
+  int PHEROMONE_COLS;
+  int PHEROMONE_ROWS;
+  float[][] pheromone;
+  final float PHEROMONE_EVAPORATION = 0.003;
+  final float PHEROMONE_DIFFUSION   = 0.01;
+  final float PHEROMONE_DEPOSIT     = 6;
+  final float PHEROMONE_INFLUENCE   = 3;
+  final float PHEROMONE_SENSING_RADIUS = 50;
+
+  // ----- SPP constants -----
+  final float SPP_WEIGHT_THRESHOLD = 0.15;
+  final float SPP_ATTRACT_SCALE    = 0.05;
+  final float SPP_REPEL_SCALE      = 0.08;
+  final float SPP_MAX_FORCE        = 0.5;
+
+  // ----- Centre point for item delivery -----
+  final int CENTER_X = 2400;
+  final int CENTER_Y = 1600;
+
+  // ----- AttRep shared constants (also used by several other modes) -----
+  final int ATT_MULT    = 128;
+  final int REP_MULT    = 44;
+  final int DRONE_ATT_MULT = 2;
+  final int DRONE_REP_MULT = 20;
+  final float COMFY_DIST  = 30;
+  PVector mouseTarget = null;
+  PVector mouseDanger = null;
+
+  final float PERLIMITER         = 25;
+  final float BORDER_PERLIMITER  = 5;
+  final float DRONE_PERLIMITER   = 10;
+
+  // ---------------------------------------------------------------
+  // Utility: random position outside the HUD safe zone
+  // ---------------------------------------------------------------
   PVector randomOutsideHud() {
     float x, y;
     do {
@@ -44,90 +167,10 @@ class SwarmManager {
     return new PVector(x, y);
   }
 
-  // Auto-update tick system
-  int ticks = 0;
-  final int MAX_TICKS = 450;
-  final int UPDATE_PORTION = 2;
-  final float PIXEL_METRIC_CONV = 0.06;
-
-  // ConSteer constants
-  final float BORDER_TO_CLOSE = 2;
-  final float DANGER_TO_CLOSE = 8;
-  final float MEMBER_TO_CLOSE = 4;
-  final float SWARM_DIST = 12;
-  final float GOAL_LIMIT = 30;
-  final float GOAL_SIGMA = -3;
-  final float GOAL_GAMMA = 25;
-  final float DANGER_LIMIT = 40;
-  final float DANGER_CUT_OFF = 5;
-  final float DANGER_SIGMA = 3.85;
-  final float DANGER_GAMMA = 18.5;
-  final float DANGER_ALPHA = 20;
-  final float MEMBER_REP_LIMIT = 30;
-  final float MEMBER_REP_SIGMA = 18;
-  final float MEMBER_REP_GAMMA = 1.5;
-  final float MEMBER_REP_ALPHA = 0.1;
-  final float MEMBER_ATT_LIMIT = 30;
-  final float MEMBER_ATT_CUT_OFF = 22;
-
-  // Combined mode constants
-  final float ZONE_DANGER_LIMIT = 100;
-  final float ZONE_TO_CLOSE = 10;
-  final float COMBINED_REP_SCALE = 200;
-  final float COMBINED_REP_LIMIT = 30;
-  final float COMBINED_ATT_SCALE = 3.0;
-  final float COMBINED_ATT_DEADZONE = 3.0;
-  final float COMBINED_ATT_LIMIT = 50;
-  final float COMBINED_MEMBER_TO_CLOSE = 3.0;
-  final float FOLLOW_SCALE = 5.0;
-  final float FOLLOW_DEADZONE = 4.0;
-  final float FOLLOW_LIMIT = 60;
-
-  // PSO state
-  PVector gbest = new PVector();
-  float gbestFitness = Float.MAX_VALUE;
-  final float PSO_INERTIA = 0.7;
-  final float PSO_COGNITIVE = 1.5;
-  final float PSO_SOCIAL = 1.5;
-
-  // Cucker-Smale constants
-  final float CUCKER_H = 80.0;
-  final float CUCKER_ATTR_SCALE = 0.5;
-  final float CUCKER_ATTR_LIMIT = 40;
-
-  // Vicsek constants
-  final float VICSEK_RADIUS = 120;
-  final float VICSEK_NOISE = 0.15;
-  final float VICSEK_SPEED = 3.0;
-
-  // Morphogenetic constants
-  final float MORPH_COMM_RADIUS = 150;
-  final float MORPH_DECAY = 0.98;
-  final float MORPH_DIFFUSION = 0.05;
-  final float MORPH_PRODUCTION = 0.01;
-  final float MORPH_ATTRACT_SCALE = 80;
-
-  // ACO constants
-  final int PHEROMONE_CELL = 50;
-  int PHEROMONE_COLS;
-  int PHEROMONE_ROWS;
-  float[][] pheromone;
-  final float PHEROMONE_EVAPORATION = 0.003;
-  final float PHEROMONE_DIFFUSION = 0.01;
-  final float PHEROMONE_DEPOSIT = 6;
-  final float PHEROMONE_INFLUENCE = 3;
-  final float PHEROMONE_SENSING_RADIUS = 50;
-
-  // SPP constants
-  final float SPP_WEIGHT_THRESHOLD = 0.15;
-  final float SPP_ATTRACT_SCALE = 0.05;
-  final float SPP_REPEL_SCALE = 0.08;
-  final float SPP_MAX_FORCE = 0.5;
-
-  // Center point for item delivery
-  final int CENTER_X = 2400;
-  final int CENTER_Y = 1600;
-
+  // ---------------------------------------------------------------
+  // findLeader: drone closest to the nearest attractor
+  // (used by COMBINED mode — the leader navigates, others follow)
+  // ---------------------------------------------------------------
   Boid findLeader() {
     Boid leader = null;
     float minDist = Float.MAX_VALUE;
@@ -140,49 +183,21 @@ class SwarmManager {
     return leader;
   }
 
-  // AttRep constants
-  final int ATT_MULT = 128;
-  final int REP_MULT = 44;
-  final int DRONE_ATT_MULT = 2;
-  final int DRONE_REP_MULT = 20;
-  final float COMFY_DIST = 30;
-  PVector mouseTarget = null;
-  PVector mouseDanger = null;
-
-  final float PERLIMITER = 25;
-  final float BORDER_PERLIMITER = 5;
-  final float DRONE_PERLIMITER = 10;
-
-  void initPheromone() {
-    PHEROMONE_COLS = width / PHEROMONE_CELL + 1;
-    PHEROMONE_ROWS = height / PHEROMONE_CELL + 1;
-    pheromone = new float[PHEROMONE_COLS][PHEROMONE_ROWS];
-  }
-
-  void evaporatePheromone() {
-    for (int x = 0; x < PHEROMONE_COLS; x++)
-      for (int y = 0; y < PHEROMONE_ROWS; y++)
-        pheromone[x][y] *= (1 - PHEROMONE_EVAPORATION);
-  }
-
-  void diffusePheromone() {
-    float[][] temp = new float[PHEROMONE_COLS][PHEROMONE_ROWS];
-    for (int x = 1; x < PHEROMONE_COLS - 1; x++)
-      for (int y = 1; y < PHEROMONE_ROWS - 1; y++) {
-        temp[x][y] = pheromone[x][y] * (1 - 4 * PHEROMONE_DIFFUSION)
-            + (pheromone[x - 1][y] + pheromone[x + 1][y] + pheromone[x][y - 1] + pheromone[x][y + 1]) * PHEROMONE_DIFFUSION;
-      }
-    pheromone = temp;
-  }
-
+  // ---------------------------------------------------------------
+  // PSO helper: reset global best fitness
+  // ---------------------------------------------------------------
   void initGbest() {
     gbestFitness = Float.MAX_VALUE;
     gbest = new PVector();
   }
 
+  // ---------------------------------------------------------------
+  // Constructor: init PSO, pheromone grid, border walls, auto points
+  // ---------------------------------------------------------------
   SwarmManager() {
     initGbest();
     initPheromone();
+    // Border walls: dense point grid around the canvas perimeter
     for (int x = 0; x < width; ++x) {
       border_points.add(new PVector(x, 0));
       border_points.add(new PVector(x, height));
@@ -194,6 +209,11 @@ class SwarmManager {
     setupAutoPoints();
   }
 
+  // ---------------------------------------------------------------
+  // initBehaviour: mode switch — init context steering dirs, reset
+  // PSO pbests, re-init ACO pheromone grid. Does NOT clear existing
+  // points or reset the auto-respawn timer.
+  // ---------------------------------------------------------------
   void initBehaviour(BehaviourFlag flag) {
     this.behaviourFlag = flag;
 
@@ -204,6 +224,7 @@ class SwarmManager {
     }
 
     if (flag == BehaviourFlag.CON_STEER || flag == BehaviourFlag.COMBINED) {
+      // Build direction vectors for context steering
       int directions = 8;
       RAY_DIRS.clear();
       for (int it = 0; it < directions; ++it) {
@@ -212,6 +233,7 @@ class SwarmManager {
       }
       SECTOR_COS_SIM = cos(PI / directions);
 
+      // Initialise context steering on boids that don't have it yet
       for (Boid b : boids) {
         if (b.DIRECTIONS == 0) b.initContextSteering(directions);
       }
@@ -221,26 +243,30 @@ class SwarmManager {
     if (flag == BehaviourFlag.ACO) initPheromone();
   }
 
+  // ---------------------------------------------------------------
+  // setupAutoPoints: first-run spawn of attractors/repellents /
+  // goals/dangers based on current behaviour flag.
+  // ---------------------------------------------------------------
   void setupAutoPoints() {
     if (behaviourFlag == BehaviourFlag.BASIC
         || behaviourFlag == BehaviourFlag.ATT_REP || behaviourFlag == BehaviourFlag.PSO
         || behaviourFlag == BehaviourFlag.MORPHOGENETIC || behaviourFlag == BehaviourFlag.ACO
         || behaviourFlag == BehaviourFlag.COMBINED) {
-      for (int it = 0; it < 8; ++it)
-        attractors.add(randomOutsideHud());
-      for (int it = 0; it < 4; ++it)
-        repellents.add(randomOutsideHud());
+      for (int it = 0; it < 8; ++it) attractors.add(randomOutsideHud());
+      for (int it = 0; it < 4; ++it) repellents.add(randomOutsideHud());
     } else if (behaviourFlag == BehaviourFlag.CON_STEER
         || behaviourFlag == BehaviourFlag.CUCKER_SMALE
         || behaviourFlag == BehaviourFlag.VICSEK
         || behaviourFlag == BehaviourFlag.SPP) {
-      for (int it = 0; it < 8; ++it)
-        goalsCS.add(randomOutsideHud());
-      for (int it = 0; it < 4; ++it)
-        dangersCS.add(randomOutsideHud());
+      for (int it = 0; it < 8; ++it) goalsCS.add(randomOutsideHud());
+      for (int it = 0; it < 4; ++it) dangersCS.add(randomOutsideHud());
     }
   }
 
+  // ---------------------------------------------------------------
+  // autoUpdate: periodically rotate target/danger positions so the
+  // environment stays dynamic and boids must keep exploring.
+  // ---------------------------------------------------------------
   void autoUpdate(int portion) {
     if (ticks >= MAX_TICKS) {
       ticks = 0;
@@ -273,8 +299,12 @@ class SwarmManager {
     ++ticks;
   }
 
+  // ---------------------------------------------------------------
+  // checkPickup: any boid touching a target (distance < 2 px) picks
+  // it up (carrying = true). Runs before force application so the
+  // current frame's movement handles the carrying state.
+  // ---------------------------------------------------------------
   void checkPickup() {
-    // All modes that use PVector-based targets
     if (behaviourFlag == BehaviourFlag.BASIC
         || behaviourFlag == BehaviourFlag.ATT_REP
         || behaviourFlag == BehaviourFlag.COMBINED
@@ -312,6 +342,10 @@ class SwarmManager {
     }
   }
 
+  // ---------------------------------------------------------------
+  // checkRelease: carrying boid at centre (distance < 10 px) drops
+  // the item. Runs after position update so delivery is correct.
+  // ---------------------------------------------------------------
   void checkRelease() {
     for (Boid b : boids) {
       if (b.carrying && dist(b.pos.x, b.pos.y, CENTER_X, CENTER_Y) < 10) {
@@ -320,9 +354,15 @@ class SwarmManager {
     }
   }
 
+  // ---------------------------------------------------------------
+  // mousePressed: LEFT-click spawns items based on current mode
+  // (G=green target, D=red danger dot, R=red repulsion zone, B=boid,
+  // M handled in draw()). RIGHT-click removes the last item of that
+  // type. All spawns reject positions inside the HUD zone.
+  // ---------------------------------------------------------------
   void mousePressed(char mode) {
     if (mouseButton == LEFT) {
-      if (mouseX < HUD_W && mouseY < HUD_H) return; // No spawns inside HUD
+      if (mouseX < HUD_W && mouseY < HUD_H) return;
       if (mode == 'G') {
         addTarget(mouseX, mouseY);
       } else if (mode == 'D') {
@@ -347,13 +387,24 @@ class SwarmManager {
     }
   }
 
+  // ---------------------------------------------------------------
+  // update: main per-frame logic
+  //
+  // Order of operations:
+  //   1. Manage population (replenish/trim to targetCount)
+  //   2. Pickup (boids grab targets they touch)
+  //   3. Check anyCarrying flag, find COMBINED leader
+  //   4. For each boid: universal forces (mouse, dangers, zones,
+  //      HUD push, centre attraction) then mode-specific apply*
+  //   5. Release (carrying boids at centre drop items)
+  //   6. Remove dead boids
+  //   7. ACO: evaporate, diffuse, centre emission
+  // ---------------------------------------------------------------
   void update() {
     managePopulation();
 
-    // 1. Pickup: carrying boids pick up targets they touch
     checkPickup();
 
-    // 2. Check if any boid carries an item
     boolean anyCarrying = false;
     for (Boid b : boids) if (b.carrying) { anyCarrying = true; break; }
 
@@ -362,7 +413,7 @@ class SwarmManager {
       leader = findLeader();
     }
 
-    // Update global best for PSO (min distance to nearest attractor)
+    // PSO global best: min distance to nearest attractor
     if (behaviourFlag == BehaviourFlag.PSO && !attractors.isEmpty()) {
       for (Boid b : boids) {
         float minDist = Float.MAX_VALUE;
@@ -380,15 +431,16 @@ class SwarmManager {
     PVector center = new PVector(CENTER_X, CENTER_Y);
 
     for (Boid b : boids) {
-      // Mouse forces (M mode) — skip target attraction for carrying boids
+      // Mouse target (M mode, LEFT-click hold)
       if (mouseTarget != null && !b.carrying) {
         b.linear_attraction(mouseTarget, ATT_MULT);
       }
+      // Mouse danger (M mode, RIGHT-click hold)
       if (mouseDanger != null) {
         b.simpleExponential_repulsion(mouseDanger, PERLIMITER, REP_MULT);
       }
 
-      // Universal danger point repulsion (repellents, user-placed D items)
+      // Universal danger point repulsion (repellents — user-placed D items)
       for (PVector r : repellents)
         b.simpleExponential_repulsion(r, 15, REP_MULT * 4);
 
@@ -402,7 +454,7 @@ class SwarmManager {
         }
       }
 
-      // HUD area repulsion (all modes)
+      // HUD area repulsion — boids are pushed away from the UI zone
       if (b.pos.x < HUD_W + 80 && b.pos.y < HUD_H + 80) {
         PVector hudPush = new PVector();
         if (b.pos.x < HUD_W) hudPush.x = (HUD_W - b.pos.x) / HUD_W;
@@ -411,17 +463,17 @@ class SwarmManager {
         b.acc.add(hudPush);
       }
 
-      // Center attraction for carrying boids (10x target strength)
+      // Centre attraction for carrying boids — 10× normal target strength
       if (b.carrying && anyCarrying) {
         b.linear_attraction(center, ATT_MULT * 10);
       }
 
-      // Universal target attraction for BASIC mode (skipped when carrying)
+      // BASIC mode uses Reynolds flocking inside Boid.update()
       if (behaviourFlag == BehaviourFlag.BASIC && !b.carrying) {
-        for (PVector a : attractors)
-          b.linear_attraction(a, ATT_MULT);
+        for (PVector a : attractors) b.linear_attraction(a, ATT_MULT);
       }
 
+      // Dispatch to behaviour-specific apply* method
       if (behaviourFlag == BehaviourFlag.BASIC) {
         b.update(boids, zones);
       } else {
@@ -450,19 +502,18 @@ class SwarmManager {
       b.recordTrail();
     }
 
-    // 3. Release: carrying boids at center release their item
     checkRelease();
 
-    // 4. Remove dead boids
+    // Remove dead boids (reverse order for safe removal)
     for (int i = boids.size() - 1; i >= 0; i--)
       if (boids.get(i).dead) boids.remove(i);
     targetCount = boids.size();
 
-    // ACO global pheromone update (once per frame)
+    // ACO global pheromone update
     if (behaviourFlag == BehaviourFlag.ACO) {
       evaporatePheromone();
       diffusePheromone();
-      // Semi-local constant pheromone emission from center (home beacon)
+      // Centre emits a constant semi-local pheromone beacon (home)
       int cx = int(CENTER_X / PHEROMONE_CELL);
       int cy = int(CENTER_Y / PHEROMONE_CELL);
       for (int dx = -4; dx <= 4; dx++) {
@@ -478,507 +529,16 @@ class SwarmManager {
     }
   }
 
-  void applyAttRep(Boid b) {
-    if (!b.carrying) {
-      for (PVector a : attractors)
-        b.linear_attraction(a, ATT_MULT);
-    }
-
-    for (PVector r : repellents)
-      b.simpleExponential_repulsion(r, PERLIMITER, REP_MULT);
-
-    for (PVector bp : border_points)
-      b.simpleExponential_repulsion(bp, BORDER_PERLIMITER, REP_MULT);
-
-    for (Boid other : boids) {
-      if (other != b) {
-        b.comfy_attraction(other.pos, COMFY_DIST * 1.5, DRONE_ATT_MULT);
-        b.complexExponential_repulsion(other.pos, DRONE_PERLIMITER, DRONE_ATT_MULT, DRONE_REP_MULT * 2);
-      }
-    }
-
-    b.vel.add(b.acc);
-    b.vel.limit(b.maxSpeed);
-    b.pos.add(b.vel);
-    b.acc.mult(0);
-  }
-
-  void applyConSteer(Boid b) {
-    for (int idx = 0; idx < RAY_DIRS.size(); ++idx) {
-      ArrayList<PVector> intrest_forces = new ArrayList<PVector>();
-      ArrayList<PVector> member_atts = new ArrayList<PVector>();
-      ArrayList<PVector> member_reps = new ArrayList<PVector>();
-      ArrayList<PVector> danger_forces = new ArrayList<PVector>();
-      ArrayList<PVector> alignment_forces = new ArrayList<PVector>();
-      boolean masked = false;
-
-      if (!b.carrying) {
-        for (PVector goal : goalsCS)
-          if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(goal, b.pos)) >= SECTOR_COS_SIM)
-            intrest_forces.add(b.linear_Attraction_CS(goal, GOAL_LIMIT, GOAL_SIGMA, GOAL_GAMMA));
-      }
-
-      for (Boid other : boids) {
-        if (other != b) {
-          if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(other.pos, b.pos)) >= SECTOR_COS_SIM) {
-            float member_dist = PVector.sub(other.pos, b.pos).mult(PIXEL_METRIC_CONV).mag();
-            if (member_dist <= MEMBER_TO_CLOSE) masked = true;
-            else if (member_dist <= SWARM_DIST) alignment_forces.add(other.vel);
-            member_atts.add(b.log_Attraction(other.pos, MEMBER_ATT_LIMIT, MEMBER_ATT_CUT_OFF));
-          }
-          if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(other.pos, b.pos).rotate(PI)) >= SECTOR_COS_SIM) {
-            member_reps.add(b.linear_Repulsion(other.pos, MEMBER_REP_LIMIT, MEMBER_REP_SIGMA, MEMBER_REP_GAMMA, MEMBER_REP_ALPHA));
-          }
-        }
-      }
-
-      for (PVector danger : dangersCS) {
-        if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(danger, b.pos).rotate(PI)) >= SECTOR_COS_SIM)
-          danger_forces.add(b.limExp_Repulsion(danger, DANGER_LIMIT, DANGER_CUT_OFF, DANGER_SIGMA, DANGER_GAMMA, DANGER_ALPHA));
-        else if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(danger, b.pos)) >= SECTOR_COS_SIM) {
-          float member_dist = PVector.sub(danger, b.pos).mult(PIXEL_METRIC_CONV).mag();
-          if (member_dist <= DANGER_TO_CLOSE) masked = true;
-        }
-      }
-
-      for (PVector bp : border_points)
-        if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(bp, b.pos)) >= SECTOR_COS_SIM) {
-          float member_dist = PVector.sub(bp, b.pos).mult(PIXEL_METRIC_CONV).mag();
-          if (member_dist <= BORDER_TO_CLOSE) masked = true;
-        }
-
-      b.create_context_segment(idx, intrest_forces, danger_forces, member_atts, member_reps, alignment_forces, !masked);
-    }
-
-    b.context_steering(RAY_DIRS, SECTOR_COS_SIM);
-
-    b.vel.add(b.acc);
-    b.vel.limit(b.maxSpeed);
-    b.pos.add(b.vel);
-    b.acc.mult(0);
-  }
-
-  void applyCombined(Boid b, Boid leader) {
-    boolean isLeader = (leader == b);
-
-    for (int idx = 0; idx < RAY_DIRS.size(); ++idx) {
-      ArrayList<PVector> intrest_forces = new ArrayList<PVector>();
-      ArrayList<PVector> member_atts = new ArrayList<PVector>();
-      ArrayList<PVector> member_reps = new ArrayList<PVector>();
-      ArrayList<PVector> danger_forces = new ArrayList<PVector>();
-      ArrayList<PVector> alignment_forces = new ArrayList<PVector>();
-      boolean masked = false;
-
-      if (isLeader && !b.carrying) {
-        // Leader navigates toward attractors
-        for (PVector a : attractors)
-          if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(a, b.pos)) >= SECTOR_COS_SIM)
-            intrest_forces.add(b.linear_Attraction_CS(a, GOAL_LIMIT, GOAL_SIGMA, GOAL_GAMMA));
-      } else if (leader != null) {
-        // Followers steer toward the leader
-        if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(leader.pos, b.pos)) >= SECTOR_COS_SIM)
-          intrest_forces.add(b.strongAttraction(leader.pos, FOLLOW_LIMIT, FOLLOW_SCALE, FOLLOW_DEADZONE));
-      }
-
-      // Flocking from other boids (stronger forces for tight cohesion)
-      for (Boid other : boids) {
-        if (other != b) {
-          if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(other.pos, b.pos)) >= SECTOR_COS_SIM) {
-            float member_dist = PVector.sub(other.pos, b.pos).mult(PIXEL_METRIC_CONV).mag();
-            if (member_dist <= COMBINED_MEMBER_TO_CLOSE) masked = true;
-            else if (member_dist <= SWARM_DIST) alignment_forces.add(other.vel);
-            member_atts.add(b.strongAttraction(other.pos, COMBINED_ATT_LIMIT, COMBINED_ATT_SCALE, COMBINED_ATT_DEADZONE));
-          }
-          if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(other.pos, b.pos).rotate(PI)) >= SECTOR_COS_SIM) {
-            member_reps.add(b.strongRepulsion(other.pos, COMBINED_REP_LIMIT, COMBINED_REP_SCALE));
-          }
-        }
-      }
-
-      // Danger from RepulsionZones
-      for (RepulsionZone z : zones) {
-        PVector toZone = PVector.sub(z.pos, b.pos);
-        float dist = toZone.mag();
-        float zoneLimit = z.radius + ZONE_DANGER_LIMIT;
-
-        if (dist < zoneLimit) {
-          boolean forward = cosine_sim(RAY_DIRS.get(idx), toZone) >= SECTOR_COS_SIM;
-          boolean behind = cosine_sim(RAY_DIRS.get(idx), toZone.rotate(PI)) >= SECTOR_COS_SIM;
-
-          if (forward) {
-            // Zone is ahead – compute repulsion
-            float strength;
-            if (dist < z.radius) {
-              // Inside zone: strong push out
-              strength = (z.radius - dist) * 0.5;
-            } else {
-              // Outside zone: gentle avoidance
-              strength = (zoneLimit - dist) / zoneLimit * 2;
-            }
-            PVector repForce = PVector.sub(b.pos, z.pos);
-            repForce.normalize();
-            repForce.mult(strength);
-            danger_forces.add(repForce);
-
-            if (dist < z.radius + ZONE_TO_CLOSE) masked = true;
-          } else if (behind && dist < z.radius) {
-            // Inside zone even behind – still mask
-            masked = true;
-          }
-        }
-      }
-
-      // Border danger
-      for (PVector bp : border_points)
-        if (cosine_sim(RAY_DIRS.get(idx), PVector.sub(bp, b.pos)) >= SECTOR_COS_SIM) {
-          float member_dist = PVector.sub(bp, b.pos).mult(PIXEL_METRIC_CONV).mag();
-          if (member_dist <= BORDER_TO_CLOSE) masked = true;
-        }
-
-      b.create_context_segment(idx, intrest_forces, danger_forces, member_atts, member_reps, alignment_forces, !masked);
-    }
-
-    b.context_steering(RAY_DIRS, SECTOR_COS_SIM);
-
-    b.vel.add(b.acc);
-    b.vel.limit(b.maxSpeed);
-    b.pos.add(b.vel);
-    b.acc.mult(0);
-  }
-
-  void applyPSO(Boid b) {
-    // Update personal best (min distance to nearest attractor)
-    if (!attractors.isEmpty()) {
-      float minDist = Float.MAX_VALUE;
-      for (PVector a : attractors) {
-        float d = PVector.dist(b.pos, a);
-        if (d < minDist) minDist = d;
-      }
-      if (minDist < b.pbestFitness) {
-        b.pbestFitness = minDist;
-        b.pbest = b.pos.copy();
-      }
-    }
-
-    // PSO velocity update
-    float r1 = random(1);
-    float r2 = random(1);
-    PVector cognitive = PVector.sub(b.pbest, b.pos).mult(PSO_COGNITIVE * r1);
-    PVector social = PVector.sub(gbest, b.pos).mult(PSO_SOCIAL * r2);
-    PVector inertia = b.vel.copy().mult(PSO_INERTIA);
-
-    PVector psoForce = PVector.add(inertia, cognitive);
-    psoForce.add(social);
-
-    // Attraction to attractors (skip if carrying)
-    if (!b.carrying) {
-      for (PVector a : attractors)
-        b.linear_attraction(a, ATT_MULT);
-    }
-
-    // Repulsion from repellents
-    for (PVector r : repellents)
-      b.simpleExponential_repulsion(r, PERLIMITER, REP_MULT);
-
-    // Border repulsion
-    for (PVector bp : border_points)
-      b.simpleExponential_repulsion(bp, BORDER_PERLIMITER, REP_MULT);
-
-    // Inter-boid repulsion
-    for (Boid other : boids) {
-      if (other != b) {
-        b.comfy_attraction(other.pos, COMFY_DIST * 1.5, DRONE_ATT_MULT);
-        b.complexExponential_repulsion(other.pos, DRONE_PERLIMITER, DRONE_ATT_MULT, DRONE_REP_MULT * 2);
-      }
-    }
-
-    // Blend PSO force with existing acc
-    b.acc.add(psoForce.limit(10));
-    b.vel.add(b.acc);
-    b.vel.limit(b.maxSpeed);
-    b.pos.add(b.vel);
-    b.acc.mult(0);
-  }
-
-  void applyCuckerSmale(Boid b) {
-    PVector alignment = new PVector();
-    float totalWeight = 0;
-
-    for (Boid other : boids) {
-      if (other != b) {
-        float dist = PVector.dist(b.pos, other.pos);
-        float weight = CUCKER_H / (CUCKER_H + dist * dist);
-        PVector diff = PVector.sub(other.vel, b.vel);
-        alignment.add(PVector.mult(diff, weight));
-        totalWeight += weight;
-      }
-    }
-
-    if (totalWeight > 0) {
-      alignment.div(totalWeight);
-    }
-
-    // Attraction toward goalsCS (skip if carrying)
-    if (!b.carrying) {
-      for (PVector g : goalsCS)
-        b.linear_attraction(g, int(ATT_MULT * CUCKER_ATTR_SCALE));
-    }
-
-    // Danger avoidance
-    for (PVector d : dangersCS)
-      b.simpleExponential_repulsion(d, PERLIMITER, REP_MULT);
-
-    // Border repulsion
-    for (PVector bp : border_points)
-      b.simpleExponential_repulsion(bp, BORDER_PERLIMITER, REP_MULT);
-
-    // Inter-boid repulsion (prevent collapse)
-    for (Boid other : boids) {
-      if (other != b) {
-        b.comfy_attraction(other.pos, COMFY_DIST * 1.5, DRONE_ATT_MULT);
-        b.complexExponential_repulsion(other.pos, DRONE_PERLIMITER, DRONE_ATT_MULT, DRONE_REP_MULT * 2);
-      }
-    }
-
-    b.acc.add(alignment);
-    b.vel.add(b.acc);
-    b.vel.limit(b.maxSpeed);
-    b.pos.add(b.vel);
-    b.acc.mult(0);
-  }
-
-  void applyVicsek(Boid b) {
-    PVector avgDir = new PVector();
-    int count = 0;
-
-    for (Boid other : boids) {
-      if (other != b && PVector.dist(b.pos, other.pos) < VICSEK_RADIUS) {
-        avgDir.add(other.vel.copy().normalize());
-        count++;
-      }
-    }
-
-    if (count > 0) {
-      avgDir.div(count);
-    } else {
-      avgDir = b.vel.copy().normalize();
-    }
-
-    // Add noise
-    float noiseAngle = random(-PI * VICSEK_NOISE, PI * VICSEK_NOISE);
-    avgDir.rotate(noiseAngle);
-    avgDir.mult(VICSEK_SPEED);
-
-    // Treat Vicsek alignment as a steering force toward desired velocity
-    PVector vicsekForce = PVector.sub(avgDir, b.vel);
-    vicsekForce.limit(b.maxForce);
-    b.acc.add(vicsekForce);
-
-    // Attraction toward goalsCS (skip if carrying)
-    if (!b.carrying) {
-      for (PVector g : goalsCS)
-        b.linear_attraction(g, int(ATT_MULT * CUCKER_ATTR_SCALE));
-    }
-
-    // Danger avoidance
-    for (PVector d : dangersCS)
-      b.simpleExponential_repulsion(d, PERLIMITER, REP_MULT);
-
-    // Border repulsion
-    for (PVector bp : border_points)
-      b.simpleExponential_repulsion(bp, BORDER_PERLIMITER, REP_MULT);
-
-    // Inter-boid repulsion with equilibrium distance
-    for (Boid other : boids) {
-      if (other != b) {
-        b.comfy_attraction(other.pos, COMFY_DIST * 1.5, DRONE_ATT_MULT);
-        b.complexExponential_repulsion(other.pos, DRONE_PERLIMITER, DRONE_ATT_MULT, DRONE_REP_MULT * 2);
-      }
-    }
-
-    b.vel.add(b.acc);
-    b.vel.limit(b.maxSpeed);
-    b.pos.add(b.vel);
-    b.acc.mult(0);
-  }
-
-  void applyMorphogenetic(Boid b) {
-    // GRN-inspired morphogen dynamics
-    float avgNeighborMorphogen = 0;
-    int neighborCount = 0;
-    for (Boid other : boids) {
-      if (other != b && PVector.dist(b.pos, other.pos) < MORPH_COMM_RADIUS) {
-        avgNeighborMorphogen += other.morphogen;
-        neighborCount++;
-      }
-    }
-    if (neighborCount > 0) {
-      avgNeighborMorphogen /= neighborCount;
-      b.morphogen += MORPH_DIFFUSION * (avgNeighborMorphogen - b.morphogen);
-    }
-    // Production toward target + decay
-    b.morphogen += MORPH_PRODUCTION * (b.morphogenTarget - b.morphogen);
-    b.morphogen *= MORPH_DECAY;
-    b.morphogen = constrain(b.morphogen, 0, 2);
-
-    // Goal attraction scaled by morphogen (skip if carrying)
-    if (!b.carrying) {
-      for (PVector a : attractors) {
-        if (b.morphogen > 0.5) {
-          b.linear_attraction(a, int(ATT_MULT * b.morphogen));
-        }
-      }
-    }
-
-    // Repulsion from repellents (stronger when morphogen is low = exploratory)
-    for (PVector r : repellents)
-      b.simpleExponential_repulsion(r, PERLIMITER, int(REP_MULT * (2 - b.morphogen)));
-
-    // Border repulsion
-    for (PVector bp : border_points)
-      b.simpleExponential_repulsion(bp, BORDER_PERLIMITER, REP_MULT);
-
-    // Inter-boid forces
-    for (Boid other : boids) {
-      if (other != b) {
-        b.comfy_attraction(other.pos, COMFY_DIST * 1.5, DRONE_ATT_MULT);
-        b.complexExponential_repulsion(other.pos, DRONE_PERLIMITER, DRONE_ATT_MULT, DRONE_REP_MULT * 2);
-      }
-    }
-
-    b.vel.add(b.acc);
-    b.vel.limit(b.maxSpeed);
-    b.pos.add(b.vel);
-    b.acc.mult(0);
-  }
-
-  void applyAco(Boid b) {
-    // Sense pheromone at current position
-    int px = int(b.pos.x / PHEROMONE_CELL);
-    int py = int(b.pos.y / PHEROMONE_CELL);
-    px = constrain(px, 0, PHEROMONE_COLS - 1);
-    py = constrain(py, 0, PHEROMONE_ROWS - 1);
-
-    // Deposit pheromone
-    float deposit = PHEROMONE_DEPOSIT;
-    if (b.carrying) {
-      deposit *= 4; // heavy trail back to center
-    } else {
-      // bonus deposit near attractors to mark "food"
-      for (PVector a : attractors) {
-        float d = PVector.dist(b.pos, a);
-        if (d < 200) deposit *= (200 - d) / 200 * 3;
-      }
-    }
-    pheromone[px][py] = min(pheromone[px][py] + deposit, 100);
-
-    // Read pheromone gradient
-    PVector gradient = new PVector();
-    for (int dx = -1; dx <= 1; dx++) {
-      for (int dy = -1; dy <= 1; dy++) {
-        if (dx == 0 && dy == 0) continue;
-        int nx = constrain(px + dx, 0, PHEROMONE_COLS - 1);
-        int ny = constrain(py + dy, 0, PHEROMONE_ROWS - 1);
-        float diff = pheromone[nx][ny] - pheromone[px][py];
-        gradient.add(new PVector(dx, dy).mult(diff));
-      }
-    }
-
-    if (b.carrying) {
-      // Returning to center: follow pheromone uphill toward center emitter
-      if (gradient.mag() > 0.1) {
-        gradient.setMag(PHEROMONE_INFLUENCE * 2);
-        b.acc.add(gradient);
-      }
-      // slight wander for natural-looking trails
-      b.acc.add(PVector.random2D().mult(0.15));
-    } else {
-      // Searching: weak attraction to targets + explore via wander
-      for (PVector a : attractors)
-        b.linear_attraction(a, int(ATT_MULT * 0.25));
-      // Follow pheromone to converge on food trails left by returning drones
-      if (gradient.mag() > 0.1) {
-        gradient.setMag(PHEROMONE_INFLUENCE * 1.2);
-        b.acc.add(gradient);
-      }
-      // Random exploration wander
-      b.acc.add(PVector.random2D().mult(0.4));
-    }
-
-    // Repulsion from repellents
-    for (PVector r : repellents)
-      b.simpleExponential_repulsion(r, PERLIMITER, REP_MULT);
-
-    // Border repulsion
-    for (PVector bp : border_points)
-      b.simpleExponential_repulsion(bp, BORDER_PERLIMITER, REP_MULT);
-
-    // Inter-boid cohesion + repulsion
-    for (Boid other : boids) {
-      if (other != b) {
-        b.comfy_attraction(other.pos, COMFY_DIST * 1.5, DRONE_ATT_MULT);
-        b.complexExponential_repulsion(other.pos, DRONE_PERLIMITER, DRONE_ATT_MULT, DRONE_REP_MULT * 2);
-      }
-    }
-
-    b.vel.add(b.acc);
-    b.vel.limit(b.maxSpeed);
-    b.pos.add(b.vel);
-    b.acc.mult(0);
-  }
-
-  void applySpp(Boid b) {
-    // Social positioning: similar weight → attract, different → repel
-    for (Boid other : boids) {
-      if (other != b) {
-        float diff = abs(b.socialWeight - other.socialWeight);
-        PVector dir = PVector.sub(other.pos, b.pos);
-        float dist = dir.mag();
-        if (dist < 1) continue;
-        float strength;
-        if (diff < SPP_WEIGHT_THRESHOLD) {
-          // Similar: social attraction (stronger when threshold is closer)
-          strength = SPP_ATTRACT_SCALE * (SPP_WEIGHT_THRESHOLD - diff) / SPP_WEIGHT_THRESHOLD * (300 / max(dist, 10));
-        } else {
-          // Different: social repulsion
-          strength = -SPP_REPEL_SCALE * (diff - SPP_WEIGHT_THRESHOLD) / (1 - SPP_WEIGHT_THRESHOLD) * (300 / max(dist, 10));
-        }
-        strength = constrain(strength, -SPP_MAX_FORCE, SPP_MAX_FORCE);
-        dir.normalize();
-        dir.mult(strength);
-        b.acc.add(dir);
-      }
-    }
-
-    // Attraction toward goalsCS (skip if carrying)
-    if (!b.carrying) {
-      for (PVector g : goalsCS)
-        b.linear_attraction(g, int(ATT_MULT * CUCKER_ATTR_SCALE));
-    }
-
-    // Danger avoidance
-    for (PVector d : dangersCS)
-      b.simpleExponential_repulsion(d, PERLIMITER, REP_MULT);
-
-    // Border repulsion
-    for (PVector bp : border_points)
-      b.simpleExponential_repulsion(bp, BORDER_PERLIMITER, REP_MULT);
-
-    // Basic inter-boid physical repulsion (prevents overlap)
-    for (Boid other : boids) {
-      if (other != b) {
-        b.complexExponential_repulsion(other.pos, DRONE_PERLIMITER, DRONE_ATT_MULT, DRONE_REP_MULT);
-      }
-    }
-
-    b.vel.add(b.acc);
-    b.vel.limit(b.maxSpeed);
-    b.pos.add(b.vel);
-    b.acc.mult(0);
-  }
-
+  // ---------------------------------------------------------------
+  // display: render all visual layers
+  //
+  // Order: ACO pheromone overlay → mode-specific targets (green) →
+  // auto-spawned dangers (red) → universal user-placed D items →
+  // repulsion zones (red circles) → boids → mouse target/danger →
+  // cornflowerblue centre circle when any boid carries.
+  // ---------------------------------------------------------------
   void display() {
-    // Draw ACO pheromone overlay (yellow dots, intensity-based opacity/size)
+    // ACO pheromone overlay (yellow ellipses, size/alpha mapped to intensity)
     if (behaviourFlag == BehaviourFlag.ACO) {
       noStroke();
       for (int x = 0; x < PHEROMONE_COLS; x++) {
@@ -995,7 +555,7 @@ class SwarmManager {
       }
     }
 
-    // Draw mode-specific targets (green)
+    // Green target dots (mode-specific)
     if (behaviourFlag == BehaviourFlag.BASIC
         || behaviourFlag == BehaviourFlag.ATT_REP || behaviourFlag == BehaviourFlag.PSO
         || behaviourFlag == BehaviourFlag.MORPHOGENETIC || behaviourFlag == BehaviourFlag.ACO
@@ -1012,7 +572,7 @@ class SwarmManager {
       for (PVector g : goalsCS) point(g.x, g.y);
     }
 
-    // Draw auto-spawned dangersCS (mode-specific)
+    // Auto-spawned danger dots (mode-specific, red)
     if (behaviourFlag == BehaviourFlag.CON_STEER
         || behaviourFlag == BehaviourFlag.CUCKER_SMALE
         || behaviourFlag == BehaviourFlag.VICSEK
@@ -1022,18 +582,18 @@ class SwarmManager {
       for (PVector d : dangersCS) point(d.x, d.y);
     }
 
-    // Draw universal user-placed danger points (D items)
+    // Universal user-placed danger dots (D items)
     stroke(255, 0, 0);
     strokeWeight(6);
     for (PVector r : repellents) point(r.x, r.y);
 
-    // Draw universal user-placed repulsion zones (R items)
+    // Universal user-placed repulsion zones (R items)
     for (RepulsionZone z : zones) z.display();
 
-    // Draw boids
+    // Boids (each draws its own trail + body)
     for (Boid b : boids) b.display();
 
-    // Draw mouse target/danger (M mode)
+    // Mouse target/danger (M mode)
     if (mouseTarget != null) {
       stroke(0, 255, 200);
       strokeWeight(12);
@@ -1045,7 +605,7 @@ class SwarmManager {
       point(mouseDanger.x, mouseDanger.y);
     }
 
-    // Draw cornflowerblue center circle if any boid carries an item
+    // Cornflowerblue centre circle when any boid carries an item
     boolean anyCarrying = false;
     for (Boid b : boids) if (b.carrying) { anyCarrying = true; break; }
     if (anyCarrying) {
@@ -1057,6 +617,10 @@ class SwarmManager {
     }
   }
 
+  // ---------------------------------------------------------------
+  // managePopulation: add/remove boids so boids.size() == targetCount
+  // New boids are spawned outside the HUD zone.
+  // ---------------------------------------------------------------
   void managePopulation() {
     while (boids.size() < targetCount) {
       PVector p = randomOutsideHud();
@@ -1072,6 +636,10 @@ class SwarmManager {
     }
   }
 
+  // ---------------------------------------------------------------
+  // addTarget / addDanger / removeLastTarget / removeLastDanger
+  // Mode-aware helpers for point management.
+  // ---------------------------------------------------------------
   void addTarget(float x, float y) {
     switch (behaviourFlag) {
       case BASIC:
@@ -1152,6 +720,10 @@ class SwarmManager {
     }
   }
 
+  // ---------------------------------------------------------------
+  // addRandomBoids / removeRandomBoids
+  // Spawn/delete n boids and adjust targetCount.
+  // ---------------------------------------------------------------
   void addRandomBoids(int n) {
     for (int i = 0; i < n; i++) {
       PVector p = randomOutsideHud();
@@ -1166,6 +738,9 @@ class SwarmManager {
     targetCount = boids.size();
   }
 
+  // ---------------------------------------------------------------
+  // clearAll: remove all user-placed points and zones
+  // ---------------------------------------------------------------
   void clearAll() {
     zones.clear();
     attractors.clear();

@@ -108,5 +108,25 @@ The top-left 800×640 area is reserved for the HUD. Auto-spawned points never ap
 
 - **Canvas**: 4800×3200 (4× scaled from a 1200×800 virtual space).
 - **Language**: Processing 4+ (Java mode).
-- **Files**: `swarm_bahviour.pde`, `SwarmManager.pde`, `Boid.pde`, `RepulsionZone.pde`.
+- **File structure**:
+
+| File                          | Purpose                                                   |
+|-------------------------------|-----------------------------------------------------------|
+| `swarm_bahviour.pde`          | Main entry: setup, draw loop, key/mouse dispatch, HUD     |
+| `SwarmManager.pde`            | Core manager: update loop, universal forces, display,     |
+|                               | point management, population control                      |
+| `Boid.pde`                    | Boid agent: physics, force functions, rendering,          |
+|                               | context steering                                           |
+| `RepulsionZone.pde`           | Circular repulsion zone (R items)                         |
+| `AttRepBehaviour.pde`         | Attraction/Repulsion (mode 2)                             |
+| `ContextSteeringBehaviour.pde`| Context steering (mode 3) + Combined leader-follower (4)  |
+| `PsoBehaviour.pde`            | Particle Swarm Optimisation (mode 5)                      |
+| `CuckerSmaleBehaviour.pde`    | Cucker-Smale flocking (mode 6)                            |
+| `VicsekBehaviour.pde`         | Vicsek flocking (mode 7)                                  |
+| `MorphogeneticBehaviour.pde`  | Morphogenetic swarm (mode 8)                              |
+| `AcoBehaviour.pde`            | Ant Colony Optimisation (mode 9) — pheromone grid         |
+| `SppBehaviour.pde`            | Social Positioning Protocol (mode 0)                      |
+
+Each behaviour module defines a single `apply*` method on the `SwarmManager` class. Processing concatenates all `.pde` files, so methods can be spread across files while belonging to the same class.
+
 - **Border**: a dense ring of border points (every pixel on the canvas edge) exerts exponential repulsion in all modes.

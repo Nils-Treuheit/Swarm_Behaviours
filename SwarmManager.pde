@@ -112,9 +112,9 @@ class SwarmManager {
   int PHEROMONE_COLS;
   int PHEROMONE_ROWS;
   float[][] pheromone;
-  final float PHEROMONE_EVAPORATION = 0.005;
-  final float PHEROMONE_DIFFUSION = 0.02;
-  final float PHEROMONE_DEPOSIT = 5;
+  final float PHEROMONE_EVAPORATION = 0.003;
+  final float PHEROMONE_DIFFUSION = 0.01;
+  final float PHEROMONE_DEPOSIT = 6;
   final float PHEROMONE_INFLUENCE = 3;
   final float PHEROMONE_SENSING_RADIUS = 50;
 
@@ -840,21 +840,33 @@ class SwarmManager {
   }
 
   void applyAco(Boid b) {
+    // Update ACO phase
+    b.acoPhaseTimer--;
+    if (b.acoPhaseTimer <= 0) {
+      b.acoPhase = !b.acoPhase;
+      b.acoPhaseTimer = int(random(80, 160));
+    }
+
     // Sense pheromone at current position
     int px = int(b.pos.x / PHEROMONE_CELL);
     int py = int(b.pos.y / PHEROMONE_CELL);
     px = constrain(px, 0, PHEROMONE_COLS - 1);
     py = constrain(py, 0, PHEROMONE_ROWS - 1);
 
-    // Deposit pheromone (more near attractors)
+    // Deposit pheromone
     float deposit = PHEROMONE_DEPOSIT;
-    for (PVector a : attractors) {
-      float d = PVector.dist(b.pos, a);
-      if (d < 200) deposit *= (200 - d) / 200 * 3;
+    if (b.carrying) {
+      deposit *= 4; // heavy trail back to center
+    } else {
+      // bonus deposit near attractors to mark "food"
+      for (PVector a : attractors) {
+        float d = PVector.dist(b.pos, a);
+        if (d < 200) deposit *= (200 - d) / 200 * 3;
+      }
     }
     pheromone[px][py] = min(pheromone[px][py] + deposit, 100);
 
-    // Read pheromone gradient for steering
+    // Read pheromone gradient (full, not just positive)
     PVector gradient = new PVector();
     for (int dx = -1; dx <= 1; dx++) {
       for (int dy = -1; dy <= 1; dy++) {
@@ -862,20 +874,42 @@ class SwarmManager {
         int nx = constrain(px + dx, 0, PHEROMONE_COLS - 1);
         int ny = constrain(py + dy, 0, PHEROMONE_ROWS - 1);
         float diff = pheromone[nx][ny] - pheromone[px][py];
-        if (diff > 0)
-          gradient.add(new PVector(dx, dy).mult(diff));
+        gradient.add(new PVector(dx, dy).mult(diff));
       }
     }
-    if (gradient.mag() > 0) {
-      gradient.setMag(PHEROMONE_INFLUENCE);
-      b.acc.add(gradient);
+
+    if (b.carrying) {
+      // Returning to centre: always follow gradient toward stronger pheromone
+      // (the outward trail from other drones creates a path to centre)
+      if (gradient.mag() > 0.1) {
+        gradient.setMag(PHEROMONE_INFLUENCE * 1.5);
+        b.acc.add(gradient);
+      }
+      // slight wander to keep trail braided
+      b.acc.add(PVector.random2D().mult(0.15));
+    } else {
+      // Searching
+      if (b.acoPhase) {
+        // EXPLOIT: follow pheromone gradient toward higher concentration
+        if (gradient.mag() > 0.1) {
+          gradient.setMag(PHEROMONE_INFLUENCE * 2);
+          b.acc.add(gradient);
+        }
+        // gentle wander even while exploiting
+        b.acc.add(PVector.random2D().mult(0.2));
+      } else {
+        // EXPLORE: avoid pheromones (anti-gradient) + random wander
+        PVector anti = PVector.mult(gradient, -1);
+        if (anti.mag() > 0.1) {
+          anti.setMag(PHEROMONE_INFLUENCE * 1.2);
+          b.acc.add(anti);
+        }
+        // stronger wander during exploration
+        b.acc.add(PVector.random2D().mult(0.5));
+      }
     }
 
-    // Goal attraction to attractors (skip if carrying)
-    if (!b.carrying) {
-      for (PVector a : attractors)
-        b.linear_attraction(a, ATT_MULT);
-    }
+    // No direct target attraction — boids find targets via pheromone trails
 
     // Repulsion from repellents
     for (PVector r : repellents)
@@ -885,7 +919,7 @@ class SwarmManager {
     for (PVector bp : border_points)
       b.simpleExponential_repulsion(bp, BORDER_PERLIMITER, REP_MULT);
 
-    // Inter-boid repulsion
+    // Inter-boid cohesion + repulsion
     for (Boid other : boids) {
       if (other != b) {
         b.comfy_attraction(other.pos, COMFY_DIST * 1.5, DRONE_ATT_MULT);
@@ -950,18 +984,21 @@ class SwarmManager {
   }
 
   void display() {
-    // Draw ACO pheromone overlay (yellow dots)
+    // Draw ACO pheromone overlay (yellow dots, intensity-based opacity/size)
     if (behaviourFlag == BehaviourFlag.ACO) {
-      stroke(255, 220, 60, 100);
-      strokeWeight(3);
+      noStroke();
       for (int x = 0; x < PHEROMONE_COLS; x++) {
         for (int y = 0; y < PHEROMONE_ROWS; y++) {
-          if (pheromone[x][y] > 0.5) {
-            point(x * PHEROMONE_CELL + PHEROMONE_CELL / 2, y * PHEROMONE_CELL + PHEROMONE_CELL / 2);
+          float p = pheromone[x][y];
+          if (p > 0.5) {
+            float alpha = constrain(map(p, 0, 20, 30, 220), 30, 220);
+            float sz = constrain(map(p, 0, 20, 2, 8), 2, 8);
+            fill(255, 220, 60, alpha);
+            ellipse(x * PHEROMONE_CELL + PHEROMONE_CELL / 2,
+                    y * PHEROMONE_CELL + PHEROMONE_CELL / 2, sz, sz);
           }
         }
       }
-      strokeWeight(1);
     }
 
     // Draw mode-specific targets (green)

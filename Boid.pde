@@ -50,6 +50,7 @@ class Boid {
 
   // ----- Mass / physics -----
   float mass;               // 0.5 (light/small/fast) to 2.0 (heavy/big/slow)
+  float activity = 0;       // Accumulated movement for ACO pheromone scaling
   boolean carrying = false; // True when boid holds a target item
   boolean dead = false;     // True when health ≤ 0 (removed next frame)
 
@@ -250,6 +251,19 @@ class Boid {
     if (pos.x < 0)      pos.x = width;
     if (pos.y > height) pos.y = 0;
     if (pos.y < 0)      pos.y = height;
+  }
+
+  // ---------------------------------------------------------------
+  // updateActivity: accumulate speed for ACO pheromone scaling
+  //   Sustained movement builds activity; stationary decays it.
+  // ---------------------------------------------------------------
+  void updateActivity() {
+    float s = vel.mag();
+    if (s > 0.15) {
+      activity = min(activity + s * 0.05, 10);
+    } else {
+      activity = max(activity - 0.1, 0);
+    }
   }
 
   // ---------------------------------------------------------------

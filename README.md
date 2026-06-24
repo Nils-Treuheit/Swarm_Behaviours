@@ -97,6 +97,8 @@ Inspired by gene regulatory networks. Each boid carries a morphogen concentratio
 ### ACO (9)
 A pheromone grid (50px cells) overlays the world. The centre emits a constant semi-local pheromone beacon (home). Non-carrying boids explore with random wander and weak attraction to targets; they also follow pheromone gradients to converge on trails left by returning boids. Carrying boids follow the pheromone gradient uphill toward the centre emitter and deposit heavy pheromone on their return path, creating visible ant-like trail networks. Pheromone evaporates and diffuses each frame. Yellow dots (size/alpha mapped to intensity) show trail density.
 
+Pheromone deposition is **speed-gated** (threshold ~0.15) — stationary/wiggling boids leave no trail. Faster boids deposit more, scaled by their **activity** (sustained movement history). Deposits are also **rear-weighted**: the faster the boid, the more pheromone is placed at the cell behind it rather than its current position, creating direction-aware ant trails.
+
 ### SPP (0)
 Social Positioning Protocol. Each boid gets a random social weight in [0,1]. Boids with similar weights attract (form same-weight clusters); boids with different weights repel.
 

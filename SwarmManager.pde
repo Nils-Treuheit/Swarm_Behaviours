@@ -126,7 +126,7 @@ class SwarmManager {
   int PHEROMONE_COLS;
   int PHEROMONE_ROWS;
   float[][] pheromone;
-  final float PHEROMONE_EVAPORATION = 0.003;
+  final float PHEROMONE_EVAPORATION = 0.006;
   final float PHEROMONE_DIFFUSION   = 0.01;
   final float PHEROMONE_DEPOSIT     = 6;
   final float PHEROMONE_INFLUENCE   = 3;
@@ -469,6 +469,9 @@ class SwarmManager {
       if (b.carrying && anyCarrying) {
         b.linear_attraction(center, ATT_MULT * 10);
       }
+
+      // Track movement activity for ACO pheromone scaling
+      b.updateActivity();
 
       // BASIC mode uses Reynolds flocking inside Boid.update()
       if (behaviourFlag == BehaviourFlag.BASIC && !b.carrying) {

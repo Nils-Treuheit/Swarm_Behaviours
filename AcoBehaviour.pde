@@ -85,13 +85,29 @@ void applyAco(SwarmManager sm, Boid b) {
   px = constrain(px, 0, sm.PHEROMONE_COLS - 1);
   py = constrain(py, 0, sm.PHEROMONE_ROWS - 1);
 
-  // Deposit pheromone at current cell
-  float deposit = sm.PHEROMONE_DEPOSIT;
-  if (b.carrying) {
-    deposit *= 4; // heavy return trail
+  // ---- Speed-gated, activity-scaled, rear-focused deposition ----
+  float SPEED_THRESHOLD = 0.15;
+  float speed = b.vel.mag();
+
+  if (speed > SPEED_THRESHOLD) {
+    float speedFactor = constrain(speed / 1.0, 0, 3);
+    float activityBoost = 1 + b.activity * 0.15;
+    float deposit = sm.PHEROMONE_DEPOSIT * speedFactor * activityBoost;
+    if (b.carrying) deposit *= 4;
+
+    // Faster movement shifts deposit further behind the boid
+    PVector velDir = b.vel.copy().normalize();
+    float currentFrac = lerp(0.8, 0.2, constrain(speed / 2.0, 0, 1));
+
+    sm.pheromone[px][py] = min(sm.pheromone[px][py] + deposit * currentFrac, 100);
+
+    // Deposit at cell behind the boid
+    PVector behind = PVector.sub(b.pos, PVector.mult(velDir, sm.PHEROMONE_CELL * 0.6));
+    int bx = constrain(int(behind.x / sm.PHEROMONE_CELL), 0, sm.PHEROMONE_COLS - 1);
+    int by = constrain(int(behind.y / sm.PHEROMONE_CELL), 0, sm.PHEROMONE_ROWS - 1);
+    sm.pheromone[bx][by] = min(sm.pheromone[bx][by] + deposit * (1 - currentFrac), 100);
   }
-  // Searching boids deposit only the base amount (no bonus near attractors)
-  sm.pheromone[px][py] = min(sm.pheromone[px][py] + deposit, 100);
+  // Below threshold: boid is stationary/wiggling, no deposit
 
   // Read pheromone gradient (difference to each of the 8 neighbours)
   PVector gradient = new PVector();

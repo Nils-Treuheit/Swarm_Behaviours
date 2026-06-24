@@ -233,7 +233,9 @@ class SwarmManager {
 
   void setupAutoPoints() {
     if (behaviourFlag == BehaviourFlag.BASIC
-        || behaviourFlag == BehaviourFlag.ATT_REP || behaviourFlag == BehaviourFlag.PSO) {
+        || behaviourFlag == BehaviourFlag.ATT_REP || behaviourFlag == BehaviourFlag.PSO
+        || behaviourFlag == BehaviourFlag.MORPHOGENETIC || behaviourFlag == BehaviourFlag.ACO
+        || behaviourFlag == BehaviourFlag.COMBINED) {
       for (int it = 0; it < 8; ++it)
         attractors.add(randomOutsideHud());
       for (int it = 0; it < 4; ++it)
@@ -246,11 +248,6 @@ class SwarmManager {
         goalsCS.add(randomOutsideHud());
       for (int it = 0; it < 4; ++it)
         dangersCS.add(randomOutsideHud());
-    } else if (behaviourFlag == BehaviourFlag.COMBINED) {
-      for (int it = 0; it < 8; ++it)
-        attractors.add(randomOutsideHud());
-      for (int it = 0; it < 4; ++it)
-        zones.add(new RepulsionZone(randomOutsideHud().x, randomOutsideHud().y, random(80, 200)));
     }
   }
 
@@ -259,7 +256,8 @@ class SwarmManager {
       ticks = 0;
       if (behaviourFlag == BehaviourFlag.BASIC
           || behaviourFlag == BehaviourFlag.ATT_REP || behaviourFlag == BehaviourFlag.PSO
-          || behaviourFlag == BehaviourFlag.MORPHOGENETIC || behaviourFlag == BehaviourFlag.ACO) {
+          || behaviourFlag == BehaviourFlag.MORPHOGENETIC || behaviourFlag == BehaviourFlag.ACO
+          || behaviourFlag == BehaviourFlag.COMBINED) {
         for (int it = 0; it < max(attractors.size() / portion, 1); ++it) {
           if (!attractors.isEmpty()) attractors.remove(0);
           attractors.add(randomOutsideHud());
@@ -279,15 +277,6 @@ class SwarmManager {
         for (int it = 0; it < max(dangersCS.size() / portion, 1); ++it) {
           if (!dangersCS.isEmpty()) dangersCS.remove(0);
           dangersCS.add(randomOutsideHud());
-        }
-      } else if (behaviourFlag == BehaviourFlag.COMBINED) {
-        for (int it = 0; it < max(attractors.size() / portion, 1); ++it) {
-          if (!attractors.isEmpty()) attractors.remove(0);
-          attractors.add(randomOutsideHud());
-        }
-        for (int it = 0; it < max(zones.size() / portion, 1); ++it) {
-          if (!zones.isEmpty()) zones.remove(0);
-          zones.add(new RepulsionZone(randomOutsideHud().x, randomOutsideHud().y, random(80, 200)));
         }
       }
     }
@@ -343,6 +332,7 @@ class SwarmManager {
 
   void mousePressed(char mode) {
     if (mouseButton == LEFT) {
+      if (mouseX < HUD_W && mouseY < HUD_H) return; // No spawns inside HUD
       if (mode == 'G') {
         addTarget(mouseX, mouseY);
       } else if (mode == 'D') {
@@ -410,11 +400,17 @@ class SwarmManager {
 
       // Universal danger point repulsion (repellents, user-placed D items)
       for (PVector r : repellents)
-        b.simpleExponential_repulsion(r, 15, REP_MULT * 2);
+        b.simpleExponential_repulsion(r, 15, REP_MULT * 4);
 
       // Universal repulsion zone forces (user-placed R items)
-      for (RepulsionZone z : zones)
-        b.simpleExponential_repulsion(z.pos, z.radius * 0.3, int(z.radius * 0.1));
+      for (RepulsionZone z : zones) {
+        float d = PVector.dist(b.pos, z.pos);
+        b.simpleExponential_repulsion(z.pos, z.radius * 0.3, int(z.radius * 0.2));
+        if (d < z.radius) {
+          b.health -= (z.radius - d) / z.radius * 0.15;
+          if (b.health <= 0) b.dead = true;
+        }
+      }
 
       // HUD area repulsion (all modes)
       if (b.pos.x < HUD_W + 80 && b.pos.y < HUD_H + 80) {
@@ -466,6 +462,11 @@ class SwarmManager {
 
     // 3. Release: carrying boids at center release their item
     checkRelease();
+
+    // 4. Remove dead boids
+    for (int i = boids.size() - 1; i >= 0; i--)
+      if (boids.get(i).dead) boids.remove(i);
+    targetCount = boids.size();
 
     // ACO global pheromone update (once per frame)
     if (behaviourFlag == BehaviourFlag.ACO) {
@@ -1037,11 +1038,12 @@ class SwarmManager {
 
   void managePopulation() {
     while (boids.size() < targetCount) {
+      PVector p = randomOutsideHud();
       if (behaviourFlag == BehaviourFlag.CON_STEER || behaviourFlag == BehaviourFlag.COMBINED) {
-        Boid nb = new Boid(random(width), random(height), 8);
+        Boid nb = new Boid(p.x, p.y, 8);
         boids.add(nb);
       } else {
-        boids.add(new Boid(random(width), random(height)));
+        boids.add(new Boid(p.x, p.y));
       }
     }
     while (boids.size() > targetCount) {
@@ -1130,8 +1132,10 @@ class SwarmManager {
   }
 
   void addRandomBoids(int n) {
-    for (int i = 0; i < n; i++)
-      boids.add(new Boid(random(width), random(height)));
+    for (int i = 0; i < n; i++) {
+      PVector p = randomOutsideHud();
+      boids.add(new Boid(p.x, p.y));
+    }
     targetCount = boids.size();
   }
 

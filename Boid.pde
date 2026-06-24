@@ -21,6 +21,10 @@ class Boid {
 
   // Carry state
   boolean carrying = false;
+  boolean dead = false;
+
+  // Health
+  float health;
 
   // Flight trail
   ArrayList<PVector> trail = new ArrayList<PVector>();
@@ -63,6 +67,8 @@ class Boid {
     morphogen = random(0.5, 1.0);
     morphogenTarget = random(0.2, 0.8);
     socialWeight = random(0, 1);
+    health = random(1, 11);
+    dead = false;
   }
 
   Boid(float x, float y, int directions) {

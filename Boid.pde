@@ -232,8 +232,7 @@ class Boid {
       strokeWeight(frac * 2.5);
       line(trail.get(i - 1).x, trail.get(i - 1).y, trail.get(i).x, trail.get(i).y);
     }
-    strokeWeight(1);
-
+    strokeWeight(5);
     if (carrying) stroke(0, 255, 255);
     else stroke(200);
     point(pos.x, pos.y);
